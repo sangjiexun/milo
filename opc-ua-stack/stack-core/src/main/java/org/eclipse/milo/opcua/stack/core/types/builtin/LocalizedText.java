@@ -19,7 +19,7 @@ public final class LocalizedText {
 
     public static final LocalizedText NULL_VALUE = new LocalizedText(null, null);
 
-    private final String locale;
+    private  String locale;
     private final String text;
 
     /**
@@ -28,7 +28,9 @@ public final class LocalizedText {
      * @param text the text in English locale.
      */
     public LocalizedText(@Nullable String text) {
-        this(Locale.ENGLISH.getLanguage(), text);
+
+//        this(Locale.ENGLISH.getLanguage(), text);
+          this.text = text;
     }
 
     /**
@@ -50,8 +52,15 @@ public final class LocalizedText {
         return text;
     }
 
+
     public static LocalizedText english(@Nullable String text) {
-        return new LocalizedText(text);
+        //  return new LocalizedText(text);
+        return new LocalizedText(Locale.ENGLISH.getLanguage(), text);
+    }
+
+    //add
+    public static LocalizedText chinese(@Nullable String text) {
+        return new LocalizedText(Locale.CHINESE.getLanguage(), text);
     }
 
     @Override
