@@ -6,6 +6,9 @@
  * which is available at https://www.eclipse.org/legal/epl-2.0/
  *
  * SPDX-License-Identifier: EPL-2.0
+ *
+ *
+ * 汉化：这里是opcua支持的数据类型
  */
 
 package org.eclipse.milo.examples.server;
