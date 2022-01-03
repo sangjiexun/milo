@@ -22,8 +22,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
@@ -75,6 +73,8 @@ import org.eclipse.milo.opcua.stack.server.services.ServiceRequest;
 import org.eclipse.milo.opcua.stack.server.services.SessionServiceSet;
 import org.eclipse.milo.opcua.stack.server.services.SubscriptionServiceSet;
 import org.eclipse.milo.opcua.stack.server.services.ViewServiceSet;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,8 +94,6 @@ public class SessionManager implements
     SessionServiceSet,
     SubscriptionServiceSet,
     ViewServiceSet {
-
-    private static final int MAX_SESSION_TIMEOUT_MS = 120000;
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -234,10 +232,10 @@ public class SessionManager implements
 
         ByteString serverNonce = NonceUtil.generateNonce(32);
         NodeId authenticationToken = new NodeId(0, NonceUtil.generateNonce(32));
-        long maxRequestMessageSize = serviceRequest.getServer().getConfig().getMessageLimits().getMaxMessageSize();
+        long maxRequestMessageSize = serviceRequest.getServer().getConfig().getEncodingLimits().getMaxMessageSize();
         double revisedSessionTimeout = Math.max(
             5000,
-            Math.min(MAX_SESSION_TIMEOUT_MS, request.getRequestedSessionTimeout())
+            Math.min(server.getConfig().getLimits().getMaxSessionTimeout(), request.getRequestedSessionTimeout())
         );
 
         ApplicationDescription clientDescription = request.getClientDescription();
@@ -487,6 +485,14 @@ public class SessionManager implements
 
             serviceRequest.setResponse(response);
         } catch (UaException e) {
+            ServerDiagnosticsSummary serverDiagnosticsSummary = server.getDiagnosticsSummary();
+
+            serverDiagnosticsSummary.getRejectedSessionCount().increment();
+
+            if (e.getStatusCode().isSecurityError()) {
+                serverDiagnosticsSummary.getSecurityRejectedSessionCount().increment();
+            }
+
             serviceRequest.setServiceFault(e);
         }
     }
@@ -702,7 +708,7 @@ public class SessionManager implements
      * @param tokenPolicies   the {@link UserTokenPolicy}s from the Session's Endpoint.
      * @return a {@link UserIdentityToken} object.
      */
-    @Nonnull
+    @NotNull
     private UserIdentityToken decodeIdentityToken(
         @Nullable ExtensionObject identityTokenXo,
         @Nullable UserTokenPolicy[] tokenPolicies

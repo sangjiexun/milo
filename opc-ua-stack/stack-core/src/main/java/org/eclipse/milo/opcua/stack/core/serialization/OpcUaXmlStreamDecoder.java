@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -18,6 +18,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.LinkedHashMap;
@@ -30,7 +31,6 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
-import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
@@ -58,8 +58,8 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.ULong;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.util.ArrayUtil;
-import org.eclipse.milo.opcua.stack.core.util.DocumentBuilderUtil;
 import org.eclipse.milo.opcua.stack.core.util.Namespaces;
+import org.eclipse.milo.opcua.stack.core.util.SecureXmlUtil;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -83,17 +83,10 @@ public class OpcUaXmlStreamDecoder implements UaDecoder {
         this.context = context;
 
         try {
-            builder = DocumentBuilderUtil.SHARED_FACTORY.newDocumentBuilder();
+            builder = SecureXmlUtil.SHARED_DOCUMENT_BUILDER_FACTORY.newDocumentBuilder();
         } catch (ParserConfigurationException e) {
             throw new UaRuntimeException(StatusCodes.Bad_InternalError, e);
         }
-    }
-
-    @Deprecated
-    public OpcUaXmlStreamDecoder(SerializationContext context, Reader reader) throws IOException, SAXException {
-        this(context);
-
-        setInput(reader);
     }
 
     public OpcUaXmlStreamDecoder setInput(Document document) {
@@ -104,7 +97,7 @@ public class OpcUaXmlStreamDecoder implements UaDecoder {
     }
 
     public OpcUaXmlStreamDecoder setInput(Reader reader) throws IOException, SAXException {
-        return setInput(new ByteArrayInputStream(CharStreams.toString(reader).getBytes()));
+        return setInput(new ByteArrayInputStream(CharStreams.toString(reader).getBytes(StandardCharsets.UTF_8)));
     }
 
     public OpcUaXmlStreamDecoder setInput(InputStream inputStream) throws IOException, SAXException {
@@ -985,8 +978,7 @@ public class OpcUaXmlStreamDecoder implements UaDecoder {
 
     @Override
     public Object readStruct(String field, ExpandedNodeId dataTypeId) throws UaSerializationException {
-        return dataTypeId
-            .local(context.getNamespaceTable())
+        return dataTypeId.toNodeId(context.getNamespaceTable())
             .map(id -> readStruct(field, id))
             .orElseThrow(() -> new UaSerializationException(
                 StatusCodes.Bad_DecodingError,
@@ -1244,8 +1236,7 @@ public class OpcUaXmlStreamDecoder implements UaDecoder {
 
     @Override
     public Object[] readStructArray(String field, ExpandedNodeId dataTypeId) throws UaSerializationException {
-        NodeId dataTypeNodeId = dataTypeId
-            .local(context.getNamespaceTable())
+        NodeId dataTypeNodeId = dataTypeId.toNodeId(context.getNamespaceTable())
             .orElse(null);
 
         if (dataTypeNodeId != null) {
@@ -1266,12 +1257,12 @@ public class OpcUaXmlStreamDecoder implements UaDecoder {
     }
 
     private void checkArrayLength(int length) throws UaSerializationException {
-        if (length > context.getEncodingLimits().getMaxArrayLength()) {
+        if (length > context.getEncodingLimits().getMaxMessageSize()) {
             throw new UaSerializationException(
                 StatusCodes.Bad_EncodingLimitsExceeded,
                 String.format(
-                    "max array length exceeded (length=%s, max=%s)",
-                    length, context.getEncodingLimits().getMaxArrayLength())
+                    "array length exceeds max message size (length=%s, max=%s)",
+                    length, context.getEncodingLimits().getMaxMessageSize())
             );
         }
     }
@@ -1280,7 +1271,7 @@ public class OpcUaXmlStreamDecoder implements UaDecoder {
         try {
             StringWriter sw = new StringWriter();
 
-            Transformer transformer = TransformerFactory.newInstance().newTransformer();
+            Transformer transformer = SecureXmlUtil.SHARED_TRANSFORMER_FACTORY.newTransformer();
             transformer.setOutputProperty("omit-xml-declaration", "yes");
             transformer.transform(new DOMSource(node), new StreamResult(sw));
 

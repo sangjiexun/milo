@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -15,12 +15,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -62,7 +64,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.google.common.collect.Lists.newArrayList;
-import static com.google.common.collect.Lists.newLinkedList;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.uint;
 import static org.eclipse.milo.opcua.stack.core.util.ConversionUtil.l;
@@ -76,11 +77,11 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
 
     private final Map<UInteger, OpcUaSubscription> subscriptions = Maps.newConcurrentMap();
 
+    private final Map<UInteger, WatchdogTimer> watchdogTimers = Maps.newConcurrentMap();
+
     private final List<SubscriptionListener> subscriptionListeners = Lists.newCopyOnWriteArrayList();
 
     private final ConcurrentMap<NodeId, AtomicLong> pendingCountMap = Maps.newConcurrentMap();
-
-    private final LinkedList<SubscriptionAcknowledgement> acknowledgements = newLinkedList();
 
     private final ExecutionQueue deliveryQueue;
     private final ExecutionQueue processingQueue;
@@ -204,12 +205,20 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
 
                     subscriptions.put(subscription.getSubscriptionId(), subscription);
 
+                    WatchdogTimer watchdogTimer = new WatchdogTimer(subscription);
+                    watchdogTimers.put(subscription.getSubscriptionId(), watchdogTimer);
+                    watchdogTimer.kick();
+
                     maybeSendPublishRequests();
 
                     return subscription;
                 });
             } else {
                 subscriptions.put(subscription.getSubscriptionId(), subscription);
+
+                WatchdogTimer watchdogTimer = new WatchdogTimer(subscription);
+                watchdogTimers.put(subscription.getSubscriptionId(), watchdogTimer);
+                watchdogTimer.kick();
 
                 maybeSendPublishRequests();
 
@@ -225,14 +234,12 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
 
     private UInteger getLifetimeCount(double publishingInterval, UInteger maxKeepAliveCount) {
         // Lifetime must be 3x (or greater) the keep-alive count.
-        try {
-            long value = maxKeepAliveCount.toBigInteger()
-                .multiply(BigInteger.valueOf(6)).longValueExact();
+        BigInteger lifetimeCount = maxKeepAliveCount
+            .toBigInteger()
+            .multiply(BigInteger.valueOf(6))
+            .min(BigInteger.valueOf(UInteger.MAX_VALUE));
 
-            return uint(Math.min(value, UInteger.MAX_VALUE));
-        } catch (ArithmeticException e) {
-            return UInteger.MAX;
-        }
+        return uint(lifetimeCount.longValue());
     }
 
     @Override
@@ -339,11 +346,17 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
                     subscription.setRevisedLifetimeCount(modifyResponse.getRevisedLifetimeCount());
                     subscription.setRevisedMaxKeepAliveCount(modifyResponse.getRevisedMaxKeepAliveCount());
 
+                    WatchdogTimer watchdogTimer = watchdogTimers.remove(subscriptionId);
+                    if (watchdogTimer != null) watchdogTimer.kick();
+
                     maybeSendPublishRequests();
 
                     return subscription;
                 });
             } else {
+                WatchdogTimer watchdogTimer = watchdogTimers.remove(subscriptionId);
+                if (watchdogTimer != null) watchdogTimer.kick();
+
                 maybeSendPublishRequests();
 
                 return completedFuture(subscription);
@@ -358,6 +371,9 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
         return client.deleteSubscriptions(subscriptionIds).thenApply(r -> {
             OpcUaSubscription subscription = subscriptions.remove(subscriptionId);
 
+            WatchdogTimer watchdogTimer = watchdogTimers.remove(subscriptionId);
+            if (watchdogTimer != null) watchdogTimer.cancel();
+
             maybeSendPublishRequests();
 
             return subscription;
@@ -367,8 +383,16 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
     public void transferFailed(UInteger subscriptionId, StatusCode statusCode) {
         OpcUaSubscription subscription = subscriptions.remove(subscriptionId);
 
+        WatchdogTimer watchdogTimer = watchdogTimers.remove(subscriptionId);
+        if (watchdogTimer != null) watchdogTimer.cancel();
+
         if (subscription != null) {
             subscriptionListeners.forEach(l -> l.onSubscriptionTransferFailed(subscription, statusCode));
+
+            subscription.getNotificationListeners().forEach(
+                l ->
+                    l.onSubscriptionTransferFailed(subscription, statusCode)
+            );
         }
     }
 
@@ -441,19 +465,19 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
     }
 
     private void sendPublishRequest(UaSession session, AtomicLong pendingCount) {
-        SubscriptionAcknowledgement[] subscriptionAcknowledgements;
+        List<SubscriptionAcknowledgement> subscriptionAcknowledgements = new ArrayList<>();
 
-        int maxArrayLength = client.getConfig().getEncodingLimits().getMaxArrayLength();
-
-        synchronized (acknowledgements) {
-            List<SubscriptionAcknowledgement> ackSubList = acknowledgements
-                .subList(0, Math.min(acknowledgements.size(), maxArrayLength));
-
-            subscriptionAcknowledgements = ackSubList.toArray(new SubscriptionAcknowledgement[0]);
-
-            ackSubList.clear();
-        }
-
+        subscriptions.values().forEach(subscription -> {
+            synchronized (subscription.availableAcknowledgements) {
+                subscription.availableAcknowledgements.forEach(sequenceNumber ->
+                    subscriptionAcknowledgements.add(new SubscriptionAcknowledgement(
+                        subscription.getSubscriptionId(),
+                        sequenceNumber
+                    ))
+                );
+                subscription.availableAcknowledgements.clear();
+            }
+        });
 
         RequestHeader requestHeader = client.getStackClient().newRequestHeader(
             session.getAuthenticationToken(),
@@ -464,11 +488,11 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
 
         PublishRequest request = new PublishRequest(
             requestHeader,
-            subscriptionAcknowledgements
+            subscriptionAcknowledgements.toArray(new SubscriptionAcknowledgement[0])
         );
 
         if (logger.isDebugEnabled()) {
-            String[] ackStrings = Arrays.stream(subscriptionAcknowledgements)
+            String[] ackStrings = subscriptionAcknowledgements.stream()
                 .map(ack -> String.format("id=%s/seq=%s",
                     ack.getSubscriptionId(), ack.getSequenceNumber()))
                 .toArray(String[]::new);
@@ -499,10 +523,6 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
                     maybeSendPublishRequests();
                 }
 
-                synchronized (this.acknowledgements) {
-                    Collections.addAll(this.acknowledgements, subscriptionAcknowledgements);
-                }
-
                 UaException uax = UaException.extract(ex).orElse(new UaException(ex));
                 subscriptionListeners.forEach(l -> l.onPublishFailure(uax));
             }
@@ -513,13 +533,20 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
         logger.debug("onPublishComplete() response for subscriptionId={}", response.getSubscriptionId());
 
         UInteger subscriptionId = response.getSubscriptionId();
+
         OpcUaSubscription subscription = subscriptions.get(subscriptionId);
 
         if (subscription == null) {
+            WatchdogTimer watchdogTimer = watchdogTimers.remove(subscriptionId);
+            if (watchdogTimer != null) watchdogTimer.cancel();
+
             pendingCount.getAndUpdate(p -> (p > 0) ? p - 1 : 0);
             maybeSendPublishRequests();
             return;
         }
+
+        WatchdogTimer watchdogTimer = watchdogTimers.get(subscriptionId);
+        if (watchdogTimer != null) watchdogTimer.kick();
 
         NotificationMessage notificationMessage = response.getNotificationMessage();
 
@@ -538,10 +565,12 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
                     logger.debug("Republish failed: {}", ex.getMessage(), ex);
 
                     subscriptionListeners.forEach(l -> l.onNotificationDataLost(subscription));
+                    subscription.getNotificationListeners().forEach(l -> l.onNotificationDataLost(subscription));
                 } else {
                     // Republish succeeded, possibly with some data loss, resume processing.
                     if (dataLost) {
                         subscriptionListeners.forEach(l -> l.onNotificationDataLost(subscription));
+                        subscription.getNotificationListeners().forEach(l -> l.onNotificationDataLost(subscription));
                     }
                 }
 
@@ -561,22 +590,22 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
 
         UInteger[] availableSequenceNumbers = response.getAvailableSequenceNumbers();
 
-        if (availableSequenceNumbers != null && availableSequenceNumbers.length > 0) {
-            synchronized (acknowledgements) {
-                for (UInteger available : availableSequenceNumbers) {
-                    acknowledgements.add(new SubscriptionAcknowledgement(subscriptionId, available));
-                }
-            }
+        synchronized (subscription.availableAcknowledgements) {
+            subscription.availableAcknowledgements.clear();
 
-            if (logger.isDebugEnabled()) {
-                String[] seqStrings = Arrays.stream(availableSequenceNumbers)
-                    .map(sequence -> String.format("id=%s/seq=%s", subscriptionId, sequence))
-                    .toArray(String[]::new);
-
-                logger.debug(
-                    "[id={}] PublishResponse sequence={}, available sequences={}",
-                    subscriptionId, sequenceNumber, Arrays.toString(seqStrings));
+            if (availableSequenceNumbers != null && availableSequenceNumbers.length > 0) {
+                Collections.addAll(subscription.availableAcknowledgements, availableSequenceNumbers);
             }
+        }
+
+        if (logger.isDebugEnabled() && availableSequenceNumbers != null) {
+            String[] seqStrings = Arrays.stream(availableSequenceNumbers)
+                .map(sequence -> String.format("id=%s/seq=%s", subscriptionId, sequence))
+                .toArray(String[]::new);
+
+            logger.debug(
+                "[id={}] PublishResponse sequence={}, available sequences={}",
+                subscriptionId, sequenceNumber, Arrays.toString(seqStrings));
         }
 
         DateTime publishTime = notificationMessage.getPublishTime();
@@ -681,7 +710,7 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
                 }
 
                 for (ExtensionObject xo : notificationData) {
-                    Object o = xo.decode(client.getSerializationContext());
+                    Object o = xo.decode(client.getStaticSerializationContext());
 
                     if (o instanceof DataChangeNotification) {
                         DataChangeNotification dcn = (DataChangeNotification) o;
@@ -810,6 +839,55 @@ public class OpcUaSubscriptionManager implements UaSubscriptionManager {
 
     public void resumeDelivery() {
         deliveryQueue.resume();
+    }
+
+    private class WatchdogTimer {
+
+        private final AtomicReference<ScheduledFuture<?>> scheduledFuture = new AtomicReference<>();
+
+        private final OpcUaSubscription subscription;
+
+        WatchdogTimer(OpcUaSubscription subscription) {
+            this.subscription = subscription;
+        }
+
+        void kick() {
+            ScheduledFuture<?> sf = scheduledFuture.get();
+            if (sf != null) sf.cancel(false);
+
+            scheduleNext();
+        }
+
+        void cancel() {
+            ScheduledFuture<?> sf = scheduledFuture.getAndSet(null);
+            if (sf != null) sf.cancel(false);
+        }
+
+        private void scheduleNext() {
+            long delay = Math.round(subscription.getRevisedPublishingInterval() *
+                subscription.getRevisedMaxKeepAliveCount().longValue() * 1.25);
+
+            ScheduledFuture<?> nextSf = client.getConfig().getScheduledExecutor().schedule(
+                () -> client.getConfig().getExecutor().execute(this::notifyListeners),
+                delay,
+                TimeUnit.MILLISECONDS
+            );
+
+            scheduledFuture.set(nextSf);
+        }
+
+        private void notifyListeners() {
+            subscriptionListeners.forEach(
+                subscriptionListener ->
+                    subscriptionListener.onSubscriptionWatchdogTimerElapsed(subscription)
+            );
+
+            subscription.getNotificationListeners().forEach(
+                notificationListener ->
+                    notificationListener.onSubscriptionWatchdogTimerElapsed(subscription)
+            );
+        }
+
     }
 
 }

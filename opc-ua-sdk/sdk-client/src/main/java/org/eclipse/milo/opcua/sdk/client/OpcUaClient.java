@@ -10,15 +10,15 @@
 
 package org.eclipse.milo.opcua.sdk.client;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
-import org.eclipse.milo.opcua.sdk.client.api.AddressSpace;
-import org.eclipse.milo.opcua.sdk.client.api.NodeCache;
 import org.eclipse.milo.opcua.sdk.client.api.ServiceFaultListener;
 import org.eclipse.milo.opcua.sdk.client.api.UaClient;
 import org.eclipse.milo.opcua.sdk.client.api.config.OpcUaClientConfig;
@@ -37,6 +37,7 @@ import org.eclipse.milo.opcua.stack.core.Stack;
 import org.eclipse.milo.opcua.stack.core.StatusCodes;
 import org.eclipse.milo.opcua.stack.core.UaException;
 import org.eclipse.milo.opcua.stack.core.UaServiceFaultException;
+import org.eclipse.milo.opcua.stack.core.security.SecurityPolicy;
 import org.eclipse.milo.opcua.stack.core.serialization.SerializationContext;
 import org.eclipse.milo.opcua.stack.core.serialization.UaRequestMessage;
 import org.eclipse.milo.opcua.stack.core.serialization.UaResponseMessage;
@@ -50,6 +51,7 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.MonitoringMode;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.TimestampsToReturn;
+import org.eclipse.milo.opcua.stack.core.types.enumerated.UserTokenType;
 import org.eclipse.milo.opcua.stack.core.types.structured.AddNodesItem;
 import org.eclipse.milo.opcua.stack.core.types.structured.AddNodesRequest;
 import org.eclipse.milo.opcua.stack.core.types.structured.AddNodesResponse;
@@ -123,6 +125,7 @@ import org.eclipse.milo.opcua.stack.core.types.structured.WriteResponse;
 import org.eclipse.milo.opcua.stack.core.types.structured.WriteValue;
 import org.eclipse.milo.opcua.stack.core.util.ExecutionQueue;
 import org.eclipse.milo.opcua.stack.core.util.ManifestUtil;
+import org.eclipse.milo.opcua.stack.core.util.Namespaces;
 import org.eclipse.milo.opcua.stack.core.util.Unit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -139,6 +142,7 @@ public class OpcUaClient implements UaClient {
 
     static {
         Logger logger = LoggerFactory.getLogger(OpcUaClient.class);
+        logger.info("Java version: " + System.getProperty("java.version"));
         logger.info("Eclipse Milo OPC UA Stack version: {}", Stack.VERSION);
         logger.info("Eclipse Milo OPC UA Client SDK version: {}", SDK_VERSION);
     }
@@ -154,6 +158,36 @@ public class OpcUaClient implements UaClient {
         UaStackClient stackClient = UaStackClient.create(config);
 
         return new OpcUaClient(config, stackClient);
+    }
+
+    /**
+     * Select the first endpoint with no security that allows anonymous connections and create an
+     * {@link OpcUaClient} with the default configuration.
+     * <p>
+     * If the server is not configured with an endpoint with no security or authentication you
+     * must use {@link #create(String, Function, Function)} to select an endpoint and configure
+     * any certificates or identity provider that the selected endpoint would require.
+     *
+     * @param endpointUrl the endpoint URL of the server to connect to and get endpoints from.
+     * @return an {@link OpcUaClient} configured to connect to the server identified by
+     * {@code endpointUrl}.
+     * @throws UaException if the endpoints could not be retrieved or the client could not be
+     *                     created.
+     */
+    public static OpcUaClient create(String endpointUrl) throws UaException {
+        // select the first EndpointDescription with no security and anonymous authentication
+        Predicate<EndpointDescription> predicate = e ->
+            SecurityPolicy.None.getUri().equals(e.getSecurityPolicyUri()) &&
+                Arrays.stream(e.getUserIdentityTokens())
+                    .anyMatch(p -> p.getTokenType() == UserTokenType.Anonymous);
+
+        return create(
+            endpointUrl,
+            endpoints -> endpoints.stream()
+                .filter(predicate)
+                .findFirst(),
+            OpcUaClientConfigBuilder::build
+        );
     }
 
     /**
@@ -212,7 +246,6 @@ public class OpcUaClient implements UaClient {
     private final ExecutionQueue faultNotificationQueue;
 
     private final AddressSpace addressSpace;
-    private final NodeCache nodeCache = new DefaultNodeCache();
 
     private final ObjectTypeManager objectTypeManager = new ObjectTypeManager();
     private final VariableTypeManager variableTypeManager = new VariableTypeManager();
@@ -262,7 +295,7 @@ public class OpcUaClient implements UaClient {
 
         faultNotificationQueue = new ExecutionQueue(config.getExecutor());
 
-        addressSpace = new DefaultAddressSpace(this);
+        addressSpace = new AddressSpace(this);
         subscriptionManager = new OpcUaSubscriptionManager(this);
 
         ObjectTypeInitializer.initialize(
@@ -286,17 +319,8 @@ public class OpcUaClient implements UaClient {
     }
 
     @Override
-    public NodeCache getNodeCache() {
-        return nodeCache;
-    }
-
-    @Override
     public AddressSpace getAddressSpace() {
         return addressSpace;
-    }
-
-    public DataTypeManager getDataTypeManager() {
-        return stackClient.getDataTypeManager();
     }
 
     public ObjectTypeManager getObjectTypeManager() {
@@ -305,6 +329,34 @@ public class OpcUaClient implements UaClient {
 
     public VariableTypeManager getVariableTypeManager() {
         return variableTypeManager;
+    }
+
+    /**
+     * @see UaStackClient#getStaticDataTypeManager()
+     */
+    public DataTypeManager getStaticDataTypeManager() {
+        return stackClient.getStaticDataTypeManager();
+    }
+
+    /**
+     * @see UaStackClient#getDynamicDataTypeManager()
+     */
+    public DataTypeManager getDynamicDataTypeManager() {
+        return stackClient.getDynamicDataTypeManager();
+    }
+
+    /**
+     * @see UaStackClient#getStaticSerializationContext()
+     */
+    public SerializationContext getStaticSerializationContext() {
+        return stackClient.getStaticSerializationContext();
+    }
+
+    /**
+     * @see UaStackClient#getDynamicSerializationContext()
+     */
+    public SerializationContext getDynamicSerializationContext() {
+        return stackClient.getDynamicSerializationContext();
     }
 
     /**
@@ -371,13 +423,14 @@ public class OpcUaClient implements UaClient {
     private void updateNamespaceTable(String[] namespaceArray) {
         getNamespaceTable().update(uriTable -> {
             uriTable.clear();
+            uriTable.put(ushort(0), Namespaces.OPC_UA);
 
             if (namespaceArray.length > UShort.MAX_VALUE) {
                 logger.warn("NamespaceTable returned by " +
                     "server contains " + namespaceArray.length + " entries");
             }
 
-            for (int i = 0; i < namespaceArray.length && i < UShort.MAX_VALUE; i++) {
+            for (int i = 1; i < namespaceArray.length && i < UShort.MAX_VALUE; i++) {
                 String uri = namespaceArray[i];
 
                 if (uri != null && !uriTable.containsValue(uri)) {
@@ -385,10 +438,6 @@ public class OpcUaClient implements UaClient {
                 }
             }
         });
-    }
-
-    public SerializationContext getSerializationContext() {
-        return stackClient.getSerializationContext();
     }
 
     /**
@@ -494,7 +543,7 @@ public class OpcUaClient implements UaClient {
         return getSession().thenCompose(session -> {
             HistoryReadRequest request = new HistoryReadRequest(
                 newRequestHeader(session.getAuthenticationToken()),
-                ExtensionObject.encode(getSerializationContext(), historyReadDetails),
+                ExtensionObject.encode(getStaticSerializationContext(), historyReadDetails),
                 timestampsToReturn,
                 releaseContinuationPoints,
                 a(nodesToRead, HistoryReadValueId.class)
@@ -508,7 +557,7 @@ public class OpcUaClient implements UaClient {
     public CompletableFuture<HistoryUpdateResponse> historyUpdate(List<HistoryUpdateDetails> historyUpdateDetails) {
         return getSession().thenCompose(session -> {
             ExtensionObject[] details = historyUpdateDetails.stream()
-                .map(hud -> ExtensionObject.encode(getSerializationContext(), hud))
+                .map(hud -> ExtensionObject.encode(getStaticSerializationContext(), hud))
                 .toArray(ExtensionObject[]::new);
 
             HistoryUpdateRequest request = new HistoryUpdateRequest(

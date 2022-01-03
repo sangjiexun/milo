@@ -17,7 +17,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
-import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterators;
@@ -46,6 +45,7 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.ULong;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.util.Namespaces;
+import org.jetbrains.annotations.Nullable;
 import org.opcfoundation.opcua.binaryschema.FieldType;
 import org.opcfoundation.opcua.binaryschema.StructuredType;
 import org.opcfoundation.opcua.binaryschema.SwitchOperand;
@@ -204,7 +204,7 @@ public abstract class AbstractCodec<StructureT, MemberT> implements OpcUaBinaryD
             String typeName = field.getTypeName().getLocalPart();
             String typeNamespace = field.getTypeName().getNamespaceURI();
 
-            if (!fieldIsPresent(field, members)) {
+            if (fieldIsAbsent(field, members)) {
                 continue;
             }
 
@@ -289,7 +289,7 @@ public abstract class AbstractCodec<StructureT, MemberT> implements OpcUaBinaryD
         while (fieldIterator.hasNext()) {
             FieldType field = fieldIterator.next();
 
-            if (!fieldIsPresent(field, members)) {
+            if (fieldIsAbsent(field, members)) {
                 continue;
             }
 
@@ -425,9 +425,9 @@ public abstract class AbstractCodec<StructureT, MemberT> implements OpcUaBinaryD
         return length;
     }
 
-    private boolean fieldIsPresent(FieldType field, Map<String, MemberT> members) {
+    private boolean fieldIsAbsent(FieldType field, Map<String, MemberT> members) {
         if (field.getSwitchField() == null) {
-            return true;
+            return false;
         } else {
             MemberT controlField = members.get(field.getSwitchField());
 
@@ -445,7 +445,7 @@ public abstract class AbstractCodec<StructureT, MemberT> implements OpcUaBinaryD
             SwitchOperand switchOperand = field.getSwitchOperand() != null ?
                 field.getSwitchOperand() : SwitchOperand.EQUALS;
 
-            return compareToSwitchValue(controlValue, switchOperand, switchValue);
+            return !compareToSwitchValue(controlValue, switchOperand, switchValue);
         }
     }
 

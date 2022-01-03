@@ -13,8 +13,6 @@ package org.eclipse.milo.opcua.stack.core.types.builtin;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import javax.xml.bind.DatatypeConverter;
 
 import com.google.common.base.MoreObjects;
@@ -27,6 +25,8 @@ import org.eclipse.milo.opcua.stack.core.UaRuntimeException;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.IdType;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.uint;
 import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.ushort;
@@ -122,10 +122,10 @@ public final class ExpandedNodeId {
     }
 
     public ExpandedNodeId(
-        @Nonnull UShort namespaceIndex,
+        @NotNull UShort namespaceIndex,
         @Nullable String namespaceUri,
         @Nullable Object identifier,
-        @Nonnull UInteger serverIndex
+        @NotNull UInteger serverIndex
     ) {
 
         Preconditions.checkNotNull(namespaceIndex);
@@ -316,15 +316,65 @@ public final class ExpandedNodeId {
     }
 
     /**
+     * Re-index this {@link ExpandedNodeId} from its current namespace index to the index for
+     * {@code namespaceUri} in {@code namespaceTable}.
+     * <p>
+     * If the target namespace URI is not present in the namespace table this ExpandedNodeId
+     * is returned.
+     *
+     * @param namespaceTable the {@link NamespaceTable}.
+     * @param namespaceUri   the target namespace URI.
+     * @return a new {@link NodeId} in the namespace index indicated by {@code namespaceUri}.
+     */
+    public ExpandedNodeId reindex(NamespaceTable namespaceTable, String namespaceUri) {
+        if (isAbsolute()) {
+            // namespaceUri is specified; namespaceIndex is ignored
+            return this;
+        } else {
+            UShort newNamespaceIndex = namespaceTable.getIndex(namespaceUri);
+
+            if (newNamespaceIndex != null &&
+                !Objects.equals(namespaceIndex, newNamespaceIndex)) {
+
+                return new ExpandedNodeId(
+                    newNamespaceIndex,
+                    null,
+                    identifier,
+                    serverIndex
+                );
+            } else {
+                return this;
+            }
+        }
+    }
+
+    /**
      * If this {@link ExpandedNodeId} resides on the local server ({@code serverIndex == 0}), return its representation
      * as a local {@link NodeId}.
+     * <p>
+     * If this ExpandedNodeId specifies a namespace URI instead of a namespace index then the URI must exist in
+     * {@code namespaceTable} or {@link Optional#empty()} is returned.
      *
-     * @return a local {@link NodeId}, if {@code serverIndex == 0}.
-     * @deprecated use {@link #local(NamespaceTable)}, which correctly handles a namespace URI being specified.
+     * @param namespaceTable the {@link NamespaceTable}.
+     * @return a local {@link NodeId}, if {@code serverIndex == 0} and the namespace index can be determined.
+     * @deprecated use {@link #toNodeId(NamespaceTable)} instead.
      */
     @Deprecated
-    public Optional<NodeId> local() {
-        return isLocal() ? Optional.of(new NodeId(namespaceIndex, identifier)) : Optional.empty();
+    public Optional<NodeId> local(NamespaceTable namespaceTable) {
+        return toNodeId(namespaceTable);
+    }
+
+    /**
+     * Like {@link #local(NamespaceTable)}, but throws if the node is not local or the namespace is not registered.
+     *
+     * @param namespaceTable the {@link NamespaceTable}.
+     * @return a local {@link NodeId}.
+     * @throws Exception if the node is not local or the namespace is not registered.
+     * @deprecated use {@link #toNodeIdOrThrow(NamespaceTable)} instead.
+     */
+    @Deprecated
+    public NodeId localOrThrow(NamespaceTable namespaceTable) throws Exception {
+        return toNodeIdOrThrow(namespaceTable);
     }
 
     /**
@@ -337,7 +387,7 @@ public final class ExpandedNodeId {
      * @param namespaceTable the {@link NamespaceTable}.
      * @return a local {@link NodeId}, if {@code serverIndex == 0} and the namespace index can be determined.
      */
-    public Optional<NodeId> local(NamespaceTable namespaceTable) {
+    public Optional<NodeId> toNodeId(NamespaceTable namespaceTable) {
         if (isLocal()) {
             if (namespaceUri == null || namespaceUri.isEmpty()) {
                 NodeId nodeId = new NodeId(namespaceIndex, identifier);
@@ -360,30 +410,52 @@ public final class ExpandedNodeId {
     }
 
     /**
-     * Like {@link #local(NamespaceTable)}, but throws if the node is not local or the namespace is not registered.
+     * Like {@link #toNodeId(NamespaceTable)}, but throws if the node is not local or the namespace is not registered.
      *
      * @param namespaceTable the {@link NamespaceTable}.
      * @return a local {@link NodeId}.
      * @throws Exception if the node is not local or the namespace is not registered.
      */
-    public NodeId localOrThrow(NamespaceTable namespaceTable) throws Exception {
+    public NodeId toNodeIdOrThrow(NamespaceTable namespaceTable) throws Exception {
         if (isLocal()) {
-            return local(namespaceTable)
+            return toNodeId(namespaceTable)
                 .orElseThrow(() -> new Exception("namespace not registered: " + namespaceUri));
         } else {
             throw new Exception("not a local node (serverIndex = " + serverIndex + ")");
         }
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ExpandedNodeId that = (ExpandedNodeId) o;
-        return Objects.equals(namespaceIndex, that.namespaceIndex) &&
-            Objects.equals(identifier, that.identifier) &&
-            Objects.equals(namespaceUri, that.namespaceUri) &&
-            serverIndex.equals(that.serverIndex);
+    /**
+     * Check if this {@link ExpandedNodeId} is equal to {@code nodeId}.
+     * <p>
+     * To be considered equal this ExpandedNodeId must be in serverIndex == 0, have the same namespace index as
+     * {@code nodeId} or have a namespace URI at the same index in the default namespace table, and an equal
+     * identifier.
+     *
+     * @param nodeId the {@link NodeId} to check equality against.
+     * @return {@code true} if this {@link ExpandedNodeId} is equal to {@code nodeId}.
+     * @deprecated use {@link #equalTo(NodeId)} instead.
+     */
+    @Deprecated
+    public boolean equals(NodeId nodeId) {
+        return equalTo(nodeId);
+    }
+
+    /**
+     * Check if this {@link ExpandedNodeId} is equal to {@code nodeId}.
+     * <p>
+     * To be considered equal this ExpandedNodeId must be in serverIndex == 0, have the same namespace index as
+     * {@code nodeId} or have a namespace URI at the same index in the default namespace table, and an equal
+     * identifier.
+     *
+     * @param nodeId         the {@link NodeId} to check equality against.
+     * @param namespaceTable the {@link NamespaceTable} used to look up the index of a namespace URI.
+     * @return {@code true} if this {@link ExpandedNodeId} is equal to {@code nodeId}.
+     * @deprecated use {@link #equalTo(NodeId, NamespaceTable)} instead.
+     */
+    @Deprecated
+    public boolean equals(NodeId nodeId, NamespaceTable namespaceTable) {
+        return equalTo(nodeId, namespaceTable);
     }
 
     /**
@@ -396,8 +468,8 @@ public final class ExpandedNodeId {
      * @param nodeId the {@link NodeId} to check equality against.
      * @return {@code true} if this {@link ExpandedNodeId} is equal to {@code nodeId}.
      */
-    public boolean equals(NodeId nodeId) {
-        return nodeId.equals(this);
+    public boolean equalTo(NodeId nodeId) {
+        return nodeId.equalTo(this);
     }
 
     /**
@@ -411,8 +483,19 @@ public final class ExpandedNodeId {
      * @param namespaceTable the {@link NamespaceTable} used to look up the index of a namespace URI.
      * @return {@code true} if this {@link ExpandedNodeId} is equal to {@code nodeId}.
      */
-    public boolean equals(NodeId nodeId, NamespaceTable namespaceTable) {
-        return nodeId.equals(this, namespaceTable);
+    public boolean equalTo(NodeId nodeId, NamespaceTable namespaceTable) {
+        return nodeId.equalTo(this, namespaceTable);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ExpandedNodeId that = (ExpandedNodeId) o;
+        return Objects.equals(namespaceIndex, that.namespaceIndex) &&
+            Objects.equals(identifier, that.identifier) &&
+            Objects.equals(namespaceUri, that.namespaceUri) &&
+            serverIndex.equals(that.serverIndex);
     }
 
     @Override
@@ -492,7 +575,7 @@ public final class ExpandedNodeId {
             Object identifier = nodeId.getIdentifier();
 
             for (String part : parts) {
-                String[] ss = part.split("=");
+                String[] ss = part.split("=", 2);
                 if ("svr".equals(ss[0])) {
                     serverIndex = uint(Integer.parseInt(ss[1]));
                 } else if ("ns".equals(ss[0])) {
@@ -515,7 +598,7 @@ public final class ExpandedNodeId {
      * @return an {@link ExpandedNodeId} or {@code null} if parsing fails.
      */
     @Nullable
-    public static ExpandedNodeId parseOrNull(@Nonnull String s) {
+    public static ExpandedNodeId parseOrNull(@NotNull String s) {
         try {
             return ExpandedNodeId.parse(s);
         } catch (UaRuntimeException t) {
@@ -530,7 +613,7 @@ public final class ExpandedNodeId {
      * @param s the String to parse.
      * @return an Optional containing an {@link ExpandedNodeId}, or {@link Optional#empty()} if parsing fails.
      */
-    public static Optional<ExpandedNodeId> parseSafe(@Nonnull String s) {
+    public static Optional<ExpandedNodeId> parseSafe(@NotNull String s) {
         return Optional.ofNullable(parseOrNull(s));
     }
 

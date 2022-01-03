@@ -63,11 +63,10 @@ public class OpcUaServer {
 
     static {
         Logger logger = LoggerFactory.getLogger(OpcUaServer.class);
+        logger.info("Java version: " + System.getProperty("java.version"));
         logger.info("Eclipse Milo OPC UA Stack version: {}", Stack.VERSION);
         logger.info("Eclipse Milo OPC UA Server SDK version: {}", SDK_VERSION);
     }
-
-    private static final ScheduledExecutorService SCHEDULED_EXECUTOR_SERVICE = Stack.sharedScheduledExecutor();
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -144,8 +143,8 @@ public class OpcUaServer {
     }
 
     public CompletableFuture<OpcUaServer> shutdown() {
-        opcUaNamespace.shutdown();
         serverNamespace.shutdown();
+        opcUaNamespace.shutdown();
 
         eventFactory.shutdown();
 
@@ -245,7 +244,7 @@ public class OpcUaServer {
     }
 
     public ScheduledExecutorService getScheduledExecutorService() {
-        return SCHEDULED_EXECUTOR_SERVICE;
+        return config.getScheduledExecutorService();
     }
 
     public ImmutableList<EndpointDescription> getEndpointDescriptions() {

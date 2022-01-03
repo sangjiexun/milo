@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -35,8 +35,8 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UByte;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.ULong;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
-import org.eclipse.milo.opcua.stack.core.util.DocumentBuilderUtil;
 import org.eclipse.milo.opcua.stack.core.util.Namespaces;
+import org.eclipse.milo.opcua.stack.core.util.SecureXmlUtil;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 
@@ -53,7 +53,7 @@ public class OpcUaXmlStreamEncoder implements UaEncoder {
         this.context = context;
 
         try {
-            builder = DocumentBuilderUtil.SHARED_FACTORY.newDocumentBuilder();
+            builder = SecureXmlUtil.SHARED_DOCUMENT_BUILDER_FACTORY.newDocumentBuilder();
 
             document = builder.newDocument();
             currentNode = document;
@@ -216,8 +216,7 @@ public class OpcUaXmlStreamEncoder implements UaEncoder {
 
     @Override
     public void writeStruct(String field, Object value, ExpandedNodeId dataTypeId) throws UaSerializationException {
-        NodeId localDateTypeId = dataTypeId
-            .local(context.getNamespaceTable())
+        NodeId localDateTypeId = dataTypeId.toNodeId(context.getNamespaceTable())
             .orElseThrow(() -> new UaSerializationException(
                 StatusCodes.Bad_EncodingError,
                 "no codec registered: " + dataTypeId
@@ -375,8 +374,7 @@ public class OpcUaXmlStreamEncoder implements UaEncoder {
         ExpandedNodeId dataTypeId
     ) throws UaSerializationException {
 
-        NodeId localDateTypeId = dataTypeId
-            .local(context.getNamespaceTable())
+        NodeId localDateTypeId = dataTypeId.toNodeId(context.getNamespaceTable())
             .orElseThrow(() -> new UaSerializationException(
                 StatusCodes.Bad_EncodingError,
                 "no codec registered: " + dataTypeId

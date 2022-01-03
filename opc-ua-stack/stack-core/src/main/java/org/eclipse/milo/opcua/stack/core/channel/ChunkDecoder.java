@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -47,13 +47,11 @@ public final class ChunkDecoder {
     private volatile long lastSequenceNumber = -1L;
 
     private final ChannelParameters parameters;
-    private final int maxArrayLength;
-    private final int maxStringLength;
+    private final EncodingLimits encodingLimits;
 
-    public ChunkDecoder(ChannelParameters parameters, int maxArrayLength, int maxStringLength) {
+    public ChunkDecoder(ChannelParameters parameters, EncodingLimits encodingLimits) {
         this.parameters = parameters;
-        this.maxArrayLength = maxArrayLength;
-        this.maxStringLength = maxStringLength;
+        this.encodingLimits = encodingLimits;
     }
 
     public DecodedMessage decodeAsymmetric(
@@ -196,19 +194,17 @@ public final class ChunkDecoder {
                 long sequenceNumber = sequenceHeader.getSequenceNumber();
                 requestId = sequenceHeader.getRequestId();
 
-                if (lastSequenceNumber == -1) {
-                    lastSequenceNumber = sequenceNumber;
-                } else {
+                if (lastSequenceNumber != -1) {
                     if (lastSequenceNumber + 1 != sequenceNumber) {
                         String message = String.format(
                             "expected sequence number %s but received %s",
                             lastSequenceNumber + 1, sequenceNumber);
 
-                        throw new UaException(StatusCodes.Bad_SequenceNumberInvalid, message);
+                        throw new UaException(StatusCodes.Bad_SecurityChecksFailed, message);
                     }
-
-                    lastSequenceNumber = sequenceNumber;
                 }
+
+                lastSequenceNumber = sequenceNumber;
 
                 ByteBuf bodyBuffer = chunkBuffer.readSlice(bodyEnd - chunkBuffer.readerIndex());
 
@@ -319,7 +315,7 @@ public final class ChunkDecoder {
 
         @Override
         public void readSecurityHeader(SecureChannel channel, ByteBuf chunkBuffer) {
-            AsymmetricSecurityHeader.decode(chunkBuffer, maxArrayLength, maxStringLength);
+            AsymmetricSecurityHeader.decode(chunkBuffer, encodingLimits);
         }
 
         @Override

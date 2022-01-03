@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -10,16 +10,15 @@
 
 package org.eclipse.milo.opcua.sdk.server.nodes;
 
-import javax.annotation.Nullable;
-
+import org.eclipse.milo.opcua.sdk.core.nodes.ReferenceTypeNode;
 import org.eclipse.milo.opcua.sdk.core.nodes.ReferenceTypeNodeProperties;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.ReferenceTypeNode;
 import org.eclipse.milo.opcua.stack.core.AttributeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.LocalizedText;
 import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.QualifiedName;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NodeClass;
+import org.jetbrains.annotations.Nullable;
 
 public class UaReferenceTypeNode extends UaNode implements ReferenceTypeNode {
 
@@ -50,38 +49,32 @@ public class UaReferenceTypeNode extends UaNode implements ReferenceTypeNode {
 
     @Override
     public Boolean getIsAbstract() {
-        return isAbstract;
+        return (Boolean) filterChain.getAttribute(this, AttributeId.IsAbstract);
     }
 
     @Override
     public Boolean getSymmetric() {
-        return symmetric;
+        return (Boolean) filterChain.getAttribute(this, AttributeId.Symmetric);
     }
 
     @Override
     public LocalizedText getInverseName() {
-        return inverseName;
+        return (LocalizedText) filterChain.getAttribute(this, AttributeId.InverseName);
     }
 
     @Override
-    public synchronized void setIsAbstract(Boolean isAbstract) {
-        this.isAbstract = isAbstract;
-
-        fireAttributeChanged(AttributeId.IsAbstract, isAbstract);
+    public void setIsAbstract(Boolean isAbstract) {
+        filterChain.setAttribute(this, AttributeId.IsAbstract, isAbstract);
     }
 
     @Override
-    public synchronized void setSymmetric(Boolean symmetric) {
-        this.symmetric = symmetric;
-
-        fireAttributeChanged(AttributeId.Symmetric, symmetric);
+    public void setSymmetric(Boolean symmetric) {
+        filterChain.setAttribute(this, AttributeId.Symmetric, symmetric);
     }
 
     @Override
-    public synchronized void setInverseName(LocalizedText inverseName) {
-        this.inverseName = inverseName;
-
-        fireAttributeChanged(AttributeId.InverseName, inverseName);
+    public void setInverseName(LocalizedText inverseName) {
+        filterChain.setAttribute(this, AttributeId.InverseName, inverseName);
     }
 
     @Override

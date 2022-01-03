@@ -12,7 +12,6 @@ package org.eclipse.milo.opcua.stack.server.services;
 
 import java.net.InetAddress;
 import java.util.concurrent.CompletableFuture;
-import javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
 import io.netty.util.DefaultAttributeMap;
@@ -27,10 +26,13 @@ import org.eclipse.milo.opcua.stack.core.types.structured.EndpointDescription;
 import org.eclipse.milo.opcua.stack.core.types.structured.ResponseHeader;
 import org.eclipse.milo.opcua.stack.core.types.structured.ServiceFault;
 import org.eclipse.milo.opcua.stack.server.UaStackServer;
+import org.jetbrains.annotations.Nullable;
 
 public class ServiceRequest extends DefaultAttributeMap {
 
     private final CompletableFuture<UaResponseMessage> future = new CompletableFuture<>();
+
+    private final long receivedAtNanos = System.nanoTime();
 
     private final UaStackServer server;
     private final UaRequestMessage request;
@@ -91,6 +93,10 @@ public class ServiceRequest extends DefaultAttributeMap {
 
     public CompletableFuture<UaResponseMessage> getFuture() {
         return future;
+    }
+
+    public long getReceivedAtNanos() {
+        return receivedAtNanos;
     }
 
     public void setResponse(UaResponseMessage response) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -13,8 +13,6 @@ package org.eclipse.milo.opcua.stack.core.types.builtin;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import javax.xml.bind.DatatypeConverter;
 
 import com.google.common.base.MoreObjects;
@@ -26,6 +24,8 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.IdType;
 import org.eclipse.milo.opcua.stack.core.util.Namespaces;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.uint;
@@ -143,7 +143,7 @@ public final class NodeId {
         this.identifier = identifier;
     }
 
-    NodeId(@Nonnull UShort namespaceIndex, @Nonnull Object identifier) {
+    NodeId(@NotNull UShort namespaceIndex, @NotNull Object identifier) {
         checkNotNull(namespaceIndex);
         checkNotNull(identifier);
 
@@ -275,15 +275,37 @@ public final class NodeId {
         return new NodeId(namespaceIndex, this.identifier);
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+    /**
+     * Check if this {@link NodeId} is equal to {@code xni}.
+     * <p>
+     * To be considered equal {@code xni} must be in serverIndex == 0, have a namespace index that is equal this
+     * namespace index, or have a namespace URI at the same index in the default namespace table, and an equal
+     * identifier.
+     *
+     * @param xni the {@link ExpandedNodeId} to check equality against.
+     * @return {@code true} if this {@link NodeId} is equal to {@code xni}.
+     * @deprecated use {@link #equalTo(ExpandedNodeId)} instead.
+     */
+    @Deprecated
+    public boolean equals(ExpandedNodeId xni) {
+        return equalTo(xni);
+    }
 
-        NodeId nodeId = (NodeId) o;
-
-        return identifier.equals(nodeId.identifier) &&
-            namespaceIndex.equals(nodeId.namespaceIndex);
+    /**
+     * Check if this {@link NodeId} is equal to {@code xni}.
+     * <p>
+     * To be considered equal {@code xni} must be in serverIndex == 0, have a namespace index that is equal this
+     * namespace index, or have a namespace URI at the same index in the default namespace table, and an equal
+     * identifier.
+     *
+     * @param xni            the {@link ExpandedNodeId} to check equality against.
+     * @param namespaceTable the {@link NamespaceTable} used to look up the index of a namespace URI.
+     * @return {@code true} if this {@link NodeId} is equal to {@code xni}.
+     * @deprecated use {@link #equalTo(ExpandedNodeId, NamespaceTable)} instead.
+     */
+    @Deprecated
+    public boolean equals(ExpandedNodeId xni, NamespaceTable namespaceTable) {
+        return equalTo(xni, namespaceTable);
     }
 
     /**
@@ -296,8 +318,8 @@ public final class NodeId {
      * @param xni the {@link ExpandedNodeId} to check equality against.
      * @return {@code true} if this {@link NodeId} is equal to {@code xni}.
      */
-    public boolean equals(ExpandedNodeId xni) {
-        return equals(xni, uri -> {
+    public boolean equalTo(ExpandedNodeId xni) {
+        return equalTo(xni, uri -> {
             if (Namespaces.OPC_UA.equals(uri)) {
                 return UShort.MIN;
             } else {
@@ -317,11 +339,11 @@ public final class NodeId {
      * @param namespaceTable the {@link NamespaceTable} used to look up the index of a namespace URI.
      * @return {@code true} if this {@link NodeId} is equal to {@code xni}.
      */
-    public boolean equals(ExpandedNodeId xni, NamespaceTable namespaceTable) {
-        return equals(xni, namespaceTable::getIndex);
+    public boolean equalTo(ExpandedNodeId xni, NamespaceTable namespaceTable) {
+        return equalTo(xni, namespaceTable::getIndex);
     }
 
-    private boolean equals(ExpandedNodeId xni, Function<String, UShort> getIndex) {
+    private boolean equalTo(ExpandedNodeId xni, Function<String, UShort> getIndex) {
         if (!xni.isLocal()) {
             return false;
         }
@@ -331,6 +353,17 @@ public final class NodeId {
             xni.getNamespaceIndex();
 
         return Objects.equal(namespaceIndex, otherNamespaceIndex) && Objects.equal(identifier, xni.getIdentifier());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        NodeId nodeId = (NodeId) o;
+
+        return identifier.equals(nodeId.identifier) &&
+            namespaceIndex.equals(nodeId.namespaceIndex);
     }
 
     @Override
@@ -376,7 +409,7 @@ public final class NodeId {
         return sb.toString();
     }
 
-    public static NodeId parse(@Nonnull String s) throws UaRuntimeException {
+    public static NodeId parse(@NotNull String s) throws UaRuntimeException {
         if (s.startsWith("ns=")) {
             int index = s.indexOf(";");
 
@@ -407,7 +440,7 @@ public final class NodeId {
         switch (type) {
             case "i=":
                 try {
-                    return new NodeId(namespaceIndex, uint(Long.valueOf(id)));
+                    return new NodeId(namespaceIndex, uint(Long.parseLong(id)));
                 } catch (NumberFormatException e) {
                     throw new UaRuntimeException(StatusCodes.Bad_NodeIdInvalid, e);
                 }
@@ -431,7 +464,7 @@ public final class NodeId {
     }
 
     @Nullable
-    public static NodeId parseOrNull(@Nonnull String s) {
+    public static NodeId parseOrNull(@NotNull String s) {
         try {
             return NodeId.parse(s);
         } catch (UaRuntimeException t) {
@@ -439,7 +472,7 @@ public final class NodeId {
         }
     }
 
-    public static Optional<NodeId> parseSafe(@Nonnull String s) {
+    public static Optional<NodeId> parseSafe(@NotNull String s) {
         return Optional.ofNullable(parseOrNull(s));
     }
 

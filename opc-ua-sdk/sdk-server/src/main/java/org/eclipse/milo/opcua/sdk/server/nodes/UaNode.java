@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -10,20 +10,21 @@
 
 package org.eclipse.milo.opcua.sdk.server.nodes;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
-import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableList;
 import org.eclipse.milo.opcua.sdk.core.QualifiedProperty;
 import org.eclipse.milo.opcua.sdk.core.Reference;
+import org.eclipse.milo.opcua.sdk.core.nodes.Node;
+import org.eclipse.milo.opcua.sdk.core.nodes.ObjectNode;
+import org.eclipse.milo.opcua.sdk.core.nodes.VariableNode;
 import org.eclipse.milo.opcua.sdk.server.api.NodeManager;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.Node;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.ObjectNode;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.VariableNode;
+import org.eclipse.milo.opcua.sdk.server.model.nodes.variables.PropertyTypeNode;
 import org.eclipse.milo.opcua.sdk.server.nodes.delegates.AttributeDelegate;
 import org.eclipse.milo.opcua.sdk.server.nodes.filters.AttributeFilterChain;
 import org.eclipse.milo.opcua.stack.core.AttributeId;
@@ -41,9 +42,11 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.Variant;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NodeClass;
+import org.jetbrains.annotations.Nullable;
 
 import static org.eclipse.milo.opcua.sdk.core.util.StreamUtil.opt2stream;
 import static org.eclipse.milo.opcua.sdk.server.util.AttributeUtil.dv;
+import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.uint;
 
 public abstract class UaNode implements UaServerNode {
 
@@ -130,37 +133,37 @@ public abstract class UaNode implements UaServerNode {
     }
 
     @Override
-    public synchronized void setNodeId(NodeId nodeId) {
+    public void setNodeId(NodeId nodeId) {
         filterChain.setAttribute(this, AttributeId.NodeId, nodeId);
     }
 
     @Override
-    public synchronized void setNodeClass(NodeClass nodeClass) {
+    public void setNodeClass(NodeClass nodeClass) {
         filterChain.setAttribute(this, AttributeId.NodeClass, nodeClass);
     }
 
     @Override
-    public synchronized void setBrowseName(QualifiedName browseName) {
+    public void setBrowseName(QualifiedName browseName) {
         filterChain.setAttribute(this, AttributeId.BrowseName, browseName);
     }
 
     @Override
-    public synchronized void setDisplayName(LocalizedText displayName) {
+    public void setDisplayName(LocalizedText displayName) {
         filterChain.setAttribute(this, AttributeId.DisplayName, displayName);
     }
 
     @Override
-    public synchronized void setDescription(LocalizedText description) {
+    public void setDescription(LocalizedText description) {
         filterChain.setAttribute(this, AttributeId.Description, description);
     }
 
     @Override
-    public synchronized void setWriteMask(UInteger writeMask) {
+    public void setWriteMask(UInteger writeMask) {
         filterChain.setAttribute(this, AttributeId.WriteMask, writeMask);
     }
 
     @Override
-    public synchronized void setUserWriteMask(UInteger userWriteMask) {
+    public void setUserWriteMask(UInteger userWriteMask) {
         filterChain.setAttribute(this, AttributeId.UserWriteMask, userWriteMask);
     }
 
@@ -256,9 +259,9 @@ public abstract class UaNode implements UaServerNode {
     public final void delete() {
         NodeManager<UaNode> nodeManager = context.getNodeManager();
 
-        nodeManager.removeNode(nodeId);
+        nodeManager.removeNode(getNodeId());
 
-        for (Reference reference : nodeManager.getReferences(nodeId)) {
+        for (Reference reference : nodeManager.getReferences(getNodeId())) {
             if (reference.isForward() && reference.subtypeOf(Identifiers.HasChild)) {
                 Optional<UaNode> targetNode = nodeManager.getNode(
                     reference.getTargetNodeId(),
@@ -291,11 +294,12 @@ public abstract class UaNode implements UaServerNode {
         return context.getServer().getAddressSpaceManager().getManagedNode(nodeId);
     }
 
+    @Override
     public ImmutableList<Reference> getReferences() {
         return ImmutableList.copyOf(
             context.getServer()
                 .getAddressSpaceManager()
-                .getManagedReferences(nodeId)
+                .getManagedReferences(getNodeId())
         );
     }
 
@@ -304,6 +308,7 @@ public abstract class UaNode implements UaServerNode {
      *
      * @param reference the {@link Reference} to add.
      */
+    @Override
     public void addReference(Reference reference) {
         context.getNodeManager().addReferences(reference, context.getNamespaceTable());
     }
@@ -313,6 +318,7 @@ public abstract class UaNode implements UaServerNode {
      *
      * @param reference the {@link Reference} to remove.
      */
+    @Override
     public void removeReference(Reference reference) {
         context.getNodeManager().removeReferences(reference, context.getNamespaceTable());
     }
@@ -362,20 +368,30 @@ public abstract class UaNode implements UaServerNode {
                 String.format("%s.%s", getNodeId().getIdentifier().toString(), browseName)
             );
 
-            UaPropertyNode propertyNode = new UaPropertyNode(
+            PropertyTypeNode propertyNode = new PropertyTypeNode(
                 context,
                 propertyNodeId,
                 new QualifiedName(namespaceIndex, browseName),
-                LocalizedText.english(browseName)
+                LocalizedText.english(browseName),
+                LocalizedText.NULL_VALUE,
+                uint(0),
+                uint(0)
             );
 
             NodeId dataType = property.getDataType()
-                .local(context.getNamespaceTable())
+                .toNodeId(context.getNamespaceTable())
                 .orElse(NodeId.NULL_VALUE);
 
             propertyNode.setDataType(dataType);
             propertyNode.setValueRank(property.getValueRank());
             propertyNode.setArrayDimensions(property.getArrayDimensions());
+
+            propertyNode.addReference(new Reference(
+                propertyNode.getNodeId(),
+                Identifiers.HasTypeDefinition,
+                Identifiers.PropertyType.expanded(),
+                true
+            ));
 
             addProperty(propertyNode);
 
@@ -478,7 +494,8 @@ public abstract class UaNode implements UaServerNode {
     public Optional<UaNode> findNode(
         QualifiedName browseName,
         Predicate<UaNode> nodePredicate,
-        Predicate<Reference> referencePredicate) {
+        Predicate<Reference> referencePredicate
+    ) {
 
         return getReferences()
             .stream()
@@ -589,7 +606,8 @@ public abstract class UaNode implements UaServerNode {
     public synchronized void fireAttributeChanged(AttributeId attributeId, Object attributeValue) {
         if (observers == null) return;
 
-        observers.forEach(o -> o.attributeChanged(this, attributeId, attributeValue));
+        List<AttributeObserver> toNotify = new ArrayList<>(observers);
+        toNotify.forEach(o -> o.attributeChanged(this, attributeId, attributeValue));
     }
 
     /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -15,16 +15,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.eclipse.milo.opcua.sdk.core.Reference;
+import org.eclipse.milo.opcua.sdk.core.nodes.ObjectTypeNode;
+import org.eclipse.milo.opcua.sdk.core.nodes.VariableTypeNode;
 import org.eclipse.milo.opcua.sdk.server.ObjectTypeManager;
 import org.eclipse.milo.opcua.sdk.server.VariableTypeManager;
 import org.eclipse.milo.opcua.sdk.server.api.AddressSpaceManager;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.ObjectTypeNode;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.VariableTypeNode;
 import org.eclipse.milo.opcua.sdk.server.nodes.UaMethodNode;
 import org.eclipse.milo.opcua.sdk.server.nodes.UaNode;
 import org.eclipse.milo.opcua.sdk.server.nodes.UaNodeContext;
@@ -40,6 +39,7 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.ExpandedNodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.QualifiedName;
 import org.eclipse.milo.opcua.stack.core.util.Tree;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 public class NodeFactory {
@@ -118,8 +118,7 @@ public class NodeFactory {
         InstantiationCallback instantiationCallback
     ) throws UaException {
 
-        NodeId localTypeDefinitionId = typeDefinitionId
-            .local(context.getNamespaceTable())
+        NodeId localTypeDefinitionId = typeDefinitionId.toNodeId(context.getNamespaceTable())
             .orElseThrow(
                 () ->
                     new UaException(
@@ -334,7 +333,7 @@ public class NodeFactory {
     }
 
     protected void notifyInstantiationCallback(Tree<UaNode> nodeTree, InstantiationCallback instantiationCallback) {
-        nodeTree.traverse((node, parentNode) -> {
+        nodeTree.traverseWithParent((node, parentNode) -> {
             if (parentNode instanceof UaObjectNode && node instanceof UaMethodNode) {
                 UaMethodNode methodNode = (UaMethodNode) node;
 
@@ -418,7 +417,7 @@ public class NodeFactory {
         return node.getReferences()
             .stream()
             .filter(r -> Identifiers.HasModellingRule.equals(r.getReferenceTypeId()))
-            .anyMatch(r -> Identifiers.ModellingRule_Optional.equals(r.getTargetNodeId()));
+            .anyMatch(r -> Identifiers.ModellingRule_Optional.equalTo(r.getTargetNodeId()));
     }
 
     private static ExpandedNodeId getTypeDefinition(ReferenceTable referenceTable, BrowsePath browsePath) {

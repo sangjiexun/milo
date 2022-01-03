@@ -12,15 +12,14 @@ package org.eclipse.milo.opcua.sdk.server.util;
 
 import java.util.Optional;
 import java.util.Set;
-import javax.annotation.Nullable;
 
 import org.eclipse.milo.opcua.sdk.core.AccessLevel;
 import org.eclipse.milo.opcua.sdk.core.NumericRange;
+import org.eclipse.milo.opcua.sdk.core.nodes.Node;
+import org.eclipse.milo.opcua.sdk.core.nodes.VariableNode;
+import org.eclipse.milo.opcua.sdk.core.nodes.VariableTypeNode;
 import org.eclipse.milo.opcua.sdk.server.OpcUaServer;
 import org.eclipse.milo.opcua.sdk.server.api.AddressSpaceManager;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.Node;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.VariableNode;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.VariableTypeNode;
 import org.eclipse.milo.opcua.sdk.server.nodes.AttributeContext;
 import org.eclipse.milo.opcua.sdk.server.nodes.UaNode;
 import org.eclipse.milo.opcua.sdk.server.nodes.UaServerNode;
@@ -39,6 +38,7 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.Variant;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NodeClass;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.TimestampsToReturn;
 import org.eclipse.milo.opcua.stack.core.util.ArrayUtil;
+import org.jetbrains.annotations.Nullable;
 
 import static org.eclipse.milo.opcua.sdk.core.util.StreamUtil.opt2stream;
 import static org.eclipse.milo.opcua.sdk.server.util.AttributeUtil.getAccessLevels;
@@ -147,7 +147,7 @@ public class AttributeReader {
         if (dataTypeNode != null) {
             Optional<NodeId> superTypeId = dataTypeNode.getReferences().stream()
                 .filter(r -> r.isInverse() && r.getReferenceTypeId().equals(Identifiers.HasSubtype))
-                .flatMap(r -> opt2stream(r.getTargetNodeId().local(server.getNamespaceTable())))
+                .flatMap(r -> opt2stream(r.getTargetNodeId().toNodeId(server.getNamespaceTable())))
                 .findFirst();
 
             return superTypeId

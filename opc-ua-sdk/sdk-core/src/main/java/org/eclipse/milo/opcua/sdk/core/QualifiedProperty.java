@@ -12,15 +12,14 @@ package org.eclipse.milo.opcua.sdk.core;
 
 import java.util.Objects;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 import com.google.common.base.MoreObjects;
 import org.eclipse.milo.opcua.stack.core.NamespaceTable;
 import org.eclipse.milo.opcua.stack.core.types.builtin.ExpandedNodeId;
-import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.QualifiedName;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
+import org.jetbrains.annotations.Nullable;
 
 import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.uint;
 
@@ -31,18 +30,6 @@ public class QualifiedProperty<T> {
     private final ExpandedNodeId dataType;
     private final Integer valueRank;
     private final Class<T> javaType;
-
-    @Deprecated
-    public QualifiedProperty(
-        String namespaceUri,
-        String browseName,
-        NodeId dataType,
-        Integer valueRank,
-        Class<T> javaType
-    ) {
-
-        this(namespaceUri, browseName, dataType.expanded(), valueRank, javaType);
-    }
 
     public QualifiedProperty(
         String namespaceUri,

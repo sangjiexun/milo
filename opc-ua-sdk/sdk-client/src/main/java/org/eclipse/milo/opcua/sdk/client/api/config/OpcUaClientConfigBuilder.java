@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -14,6 +14,7 @@ import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -23,8 +24,7 @@ import org.eclipse.milo.opcua.sdk.client.api.identity.IdentityProvider;
 import org.eclipse.milo.opcua.stack.client.UaStackClientConfig;
 import org.eclipse.milo.opcua.stack.client.UaStackClientConfigBuilder;
 import org.eclipse.milo.opcua.stack.client.security.ClientCertificateValidator;
-import org.eclipse.milo.opcua.stack.core.channel.MessageLimits;
-import org.eclipse.milo.opcua.stack.core.serialization.EncodingLimits;
+import org.eclipse.milo.opcua.stack.core.channel.EncodingLimits;
 import org.eclipse.milo.opcua.stack.core.types.builtin.LocalizedText;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.structured.EndpointDescription;
@@ -33,9 +33,9 @@ import static org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.Unsigned.
 
 public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
 
-    private LocalizedText applicationName = LocalizedText.english("client application name not configured");
-    private String applicationUri = "client application uri not configured";
-    private String productUri = "client product uri not configured";
+    private LocalizedText applicationName = LocalizedText.english("Eclipse Milo application name not configured");
+    private String applicationUri = "urn:eclipse:milo:client:applicationUriNotConfigured";
+    private String productUri = "https://github.com/eclipse/milo";
 
     private Supplier<String> sessionName;
     private String[] sessionLocaleIds = new String[0];
@@ -141,12 +141,6 @@ public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
     }
 
     @Override
-    public OpcUaClientConfigBuilder setMessageLimits(MessageLimits messageLimits) {
-        super.setMessageLimits(messageLimits);
-        return this;
-    }
-
-    @Override
     public OpcUaClientConfigBuilder setChannelLifetime(UInteger channelLifetime) {
         super.setChannelLifetime(channelLifetime);
         return this;
@@ -161,6 +155,12 @@ public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
     @Override
     public OpcUaClientConfigBuilder setEventLoop(NioEventLoopGroup eventLoop) {
         super.setEventLoop(eventLoop);
+        return this;
+    }
+
+    @Override
+    public OpcUaClientConfigBuilder setScheduledExecutor(ScheduledExecutorService scheduledExecutor) {
+        super.setScheduledExecutor(scheduledExecutor);
         return this;
     }
 
@@ -194,6 +194,7 @@ public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
         return this;
     }
 
+    @Override
     public OpcUaClientConfig build() {
         UaStackClientConfig stackClientConfig = super.build();
 
@@ -250,7 +251,8 @@ public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
             IdentityProvider identityProvider,
             UInteger keepAliveFailuresAllowed,
             UInteger keepAliveInterval,
-            UInteger keepAliveTimeout) {
+            UInteger keepAliveTimeout
+        ) {
 
             this.stackClientConfig = stackClientConfig;
             this.applicationName = applicationName;
@@ -353,11 +355,6 @@ public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
         }
 
         @Override
-        public MessageLimits getMessageLimits() {
-            return stackClientConfig.getMessageLimits();
-        }
-
-        @Override
         public EncodingLimits getEncodingLimits() {
             return stackClientConfig.getEncodingLimits();
         }
@@ -370,6 +367,11 @@ public class OpcUaClientConfigBuilder extends UaStackClientConfigBuilder {
         @Override
         public ExecutorService getExecutor() {
             return stackClientConfig.getExecutor();
+        }
+
+        @Override
+        public ScheduledExecutorService getScheduledExecutor() {
+            return stackClientConfig.getScheduledExecutor();
         }
 
         @Override

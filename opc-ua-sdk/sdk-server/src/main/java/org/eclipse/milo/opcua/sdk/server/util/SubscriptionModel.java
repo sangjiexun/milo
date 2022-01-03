@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.math.DoubleMath;
+import org.eclipse.milo.opcua.sdk.core.util.GroupMapCollate;
 import org.eclipse.milo.opcua.sdk.server.AbstractLifecycle;
 import org.eclipse.milo.opcua.sdk.server.OpcUaServer;
 import org.eclipse.milo.opcua.sdk.server.api.DataItem;
@@ -63,7 +64,8 @@ public class SubscriptionModel extends AbstractLifecycle {
     }
 
     @Override
-    protected void onStartup() {}
+    protected void onStartup() {
+    }
 
     @Override
     protected void onShutdown() {
@@ -75,7 +77,7 @@ public class SubscriptionModel extends AbstractLifecycle {
     }
 
     public void onDataItemsCreated(List<DataItem> items) {
-        if (!isRunning()) {
+        if (isNotRunning()) {
             throw new IllegalArgumentException("not running");
         }
 
@@ -86,7 +88,7 @@ public class SubscriptionModel extends AbstractLifecycle {
     }
 
     public void onDataItemsModified(List<DataItem> items) {
-        if (!isRunning()) {
+        if (isNotRunning()) {
             throw new IllegalArgumentException("not running");
         }
 
@@ -94,7 +96,7 @@ public class SubscriptionModel extends AbstractLifecycle {
     }
 
     public void onDataItemsDeleted(List<DataItem> items) {
-        if (!isRunning()) {
+        if (isNotRunning()) {
             throw new IllegalArgumentException("not running");
         }
 
@@ -105,7 +107,7 @@ public class SubscriptionModel extends AbstractLifecycle {
     }
 
     public void onMonitoringModeChanged(List<MonitoredItem> items) {
-        if (!isRunning()) {
+        if (isNotRunning()) {
             throw new IllegalArgumentException("not running");
         }
 

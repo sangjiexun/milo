@@ -16,7 +16,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import javax.annotation.Nonnull;
 
 import io.netty.buffer.ByteBuf;
 import org.eclipse.milo.opcua.stack.core.StatusCodes;
@@ -43,6 +42,7 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UShort;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.IdType;
 import org.eclipse.milo.opcua.stack.core.util.ArrayUtil;
 import org.eclipse.milo.opcua.stack.core.util.TypeUtil;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.LoggerFactory;
 
 public class OpcUaBinaryStreamEncoder implements UaEncoder {
@@ -50,10 +50,10 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
     private static final Charset CHARSET_UTF8 = StandardCharsets.UTF_8;
     private static final Charset CHARSET_UTF16 = StandardCharsets.UTF_16;
 
-    private volatile ByteBuf buffer;
+    private ByteBuf buffer;
 
-    private volatile int currentByte;
-    private volatile int bitCount;
+    private int currentByte;
+    private int bitCount;
 
     private final SerializationContext context;
 
@@ -70,10 +70,10 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
         if (values == null) {
             buffer.writeIntLE(-1);
         } else {
-            if (values.length > context.getEncodingLimits().getMaxArrayLength()) {
+            if (values.length > context.getEncodingLimits().getMaxMessageSize()) {
                 throw new UaSerializationException(
                     StatusCodes.Bad_EncodingLimitsExceeded,
-                    "max array length exceeded"
+                    "array length exceeds max message size"
                 );
             }
 
@@ -193,16 +193,14 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
     }
 
     public void writeUtf8NullTerminatedString(String value) throws UaSerializationException {
-        if (value == null) {
-            buffer.writeByte(0);
-        } else {
+        if (value != null) {
             byte[] bytes = value.getBytes(CHARSET_UTF8);
             for (byte b : bytes) {
                 buffer.writeByte(b);
                 if (b == 0) return;
             }
-            buffer.writeByte(0);
         }
+        buffer.writeByte(0);
     }
 
     public void writeUtf8CharArray(String value) throws UaSerializationException {
@@ -741,7 +739,7 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
         }
     }
 
-    private Class<?> getClass(@Nonnull Object o) {
+    private Class<?> getClass(@NotNull Object o) {
         if (o.getClass().isArray()) {
             return ArrayUtil.getType(o);
         } else {
@@ -753,12 +751,12 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
         byte[] bytes = value.getBytes(charset);
         int length = bytes.length;
 
-        if (length > context.getEncodingLimits().getMaxStringLength()) {
+        if (length > context.getEncodingLimits().getMaxMessageSize()) {
             throw new UaSerializationException(
                 StatusCodes.Bad_EncodingLimitsExceeded,
                 String.format(
-                    "max string length exceeded (length=%s, max=%s)",
-                    length, context.getEncodingLimits().getMaxStringLength())
+                    "string length exceeds max message size (length=%s, max=%s)",
+                    length, context.getEncodingLimits().getMaxMessageSize())
             );
         }
 
@@ -895,8 +893,7 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
     public void writeMessage(String field, UaMessage message) throws UaSerializationException {
         ExpandedNodeId xBinaryEncodingId = message.getBinaryEncodingId();
 
-        NodeId encodingId = xBinaryEncodingId
-            .local(context.getNamespaceTable())
+        NodeId encodingId = xBinaryEncodingId.toNodeId(context.getNamespaceTable())
             .orElseThrow(
                 () ->
                     new UaSerializationException(
@@ -949,8 +946,7 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
 
     @Override
     public void writeStruct(String field, Object value, ExpandedNodeId dataTypeId) throws UaSerializationException {
-        NodeId localDateTypeId = dataTypeId
-            .local(context.getNamespaceTable())
+        NodeId localDateTypeId = dataTypeId.toNodeId(context.getNamespaceTable())
             .orElseThrow(() -> new UaSerializationException(
                 StatusCodes.Bad_EncodingError,
                 "no codec registered: " + dataTypeId
@@ -1118,8 +1114,7 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
         ExpandedNodeId dataTypeId
     ) throws UaSerializationException {
 
-        NodeId localDateTypeId = dataTypeId
-            .local(context.getNamespaceTable())
+        NodeId localDateTypeId = dataTypeId.toNodeId(context.getNamespaceTable())
             .orElseThrow(() -> new UaSerializationException(
                 StatusCodes.Bad_EncodingError,
                 "no codec registered: " + dataTypeId
@@ -1135,10 +1130,10 @@ public class OpcUaBinaryStreamEncoder implements UaEncoder {
         if (values == null) {
             buffer.writeIntLE(-1);
         } else {
-            if (values.length > context.getEncodingLimits().getMaxArrayLength()) {
+            if (values.length > context.getEncodingLimits().getMaxMessageSize()) {
                 throw new UaSerializationException(
                     StatusCodes.Bad_EncodingLimitsExceeded,
-                    "max array length exceeded"
+                    "array length exceeds max message size"
                 );
             }
 

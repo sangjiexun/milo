@@ -21,7 +21,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 import com.google.common.collect.ForwardingTable;
 import com.google.common.collect.HashBasedTable;
@@ -33,8 +32,8 @@ import io.netty.channel.Channel;
 import org.eclipse.milo.opcua.stack.core.NamespaceTable;
 import org.eclipse.milo.opcua.stack.core.StatusCodes;
 import org.eclipse.milo.opcua.stack.core.UaException;
+import org.eclipse.milo.opcua.stack.core.channel.EncodingLimits;
 import org.eclipse.milo.opcua.stack.core.security.SecurityPolicy;
-import org.eclipse.milo.opcua.stack.core.serialization.EncodingLimits;
 import org.eclipse.milo.opcua.stack.core.serialization.SerializationContext;
 import org.eclipse.milo.opcua.stack.core.serialization.UaRequestMessage;
 import org.eclipse.milo.opcua.stack.core.types.DataTypeManager;
@@ -60,6 +59,7 @@ import org.eclipse.milo.opcua.stack.core.types.structured.DeleteNodesRequest;
 import org.eclipse.milo.opcua.stack.core.types.structured.DeleteReferencesRequest;
 import org.eclipse.milo.opcua.stack.core.types.structured.DeleteSubscriptionsRequest;
 import org.eclipse.milo.opcua.stack.core.types.structured.EndpointDescription;
+import org.eclipse.milo.opcua.stack.core.types.structured.FindServersOnNetworkRequest;
 import org.eclipse.milo.opcua.stack.core.types.structured.FindServersRequest;
 import org.eclipse.milo.opcua.stack.core.types.structured.FindServersResponse;
 import org.eclipse.milo.opcua.stack.core.types.structured.GetEndpointsRequest;
@@ -101,6 +101,7 @@ import org.eclipse.milo.opcua.stack.server.services.SessionServiceSet;
 import org.eclipse.milo.opcua.stack.server.services.SubscriptionServiceSet;
 import org.eclipse.milo.opcua.stack.server.services.ViewServiceSet;
 import org.eclipse.milo.opcua.stack.server.transport.ServerChannelManager;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -472,6 +473,7 @@ public class UaStackServer {
     public void addServiceSet(String path, DiscoveryServiceSet serviceSet) {
         addServiceHandler(path, GetEndpointsRequest.TYPE_ID, serviceSet::onGetEndpoints);
         addServiceHandler(path, FindServersRequest.TYPE_ID, serviceSet::onFindServers);
+        addServiceHandler(path, FindServersOnNetworkRequest.TYPE_ID, serviceSet::onFindServersOnNetwork);
         addServiceHandler(path, RegisterServerRequest.TYPE_ID, serviceSet::onRegisterServer);
         addServiceHandler(path, RegisterServer2Request.TYPE_ID, serviceSet::onRegisterServer2);
     }

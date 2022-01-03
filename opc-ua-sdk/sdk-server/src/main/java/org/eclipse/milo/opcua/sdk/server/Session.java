@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -36,7 +35,6 @@ import org.eclipse.milo.opcua.sdk.server.services.DefaultViewServiceSet;
 import org.eclipse.milo.opcua.sdk.server.services.helpers.BrowseHelper.BrowseContinuationPoint;
 import org.eclipse.milo.opcua.sdk.server.subscriptions.SubscriptionManager;
 import org.eclipse.milo.opcua.stack.core.StatusCodes;
-import org.eclipse.milo.opcua.stack.core.UaException;
 import org.eclipse.milo.opcua.stack.core.types.builtin.ByteString;
 import org.eclipse.milo.opcua.stack.core.types.builtin.DateTime;
 import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
@@ -54,6 +52,7 @@ import org.eclipse.milo.opcua.stack.core.util.CertificateUtil;
 import org.eclipse.milo.opcua.stack.server.services.NodeManagementServiceSet;
 import org.eclipse.milo.opcua.stack.server.services.ServiceRequest;
 import org.eclipse.milo.opcua.stack.server.services.SessionServiceSet;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -145,7 +144,7 @@ public class Session implements SessionServiceSet {
         nodeManagementServiceSet = new DefaultNodeManagementServiceSet();
         queryServiceSet = new DefaultQueryServiceSet();
         subscriptionServiceSet = new DefaultSubscriptionServiceSet(subscriptionManager);
-        viewServiceSet = new DefaultViewServiceSet();
+        viewServiceSet = new DefaultViewServiceSet(server.getConfig().getExecutor());
 
         checkTimeoutFuture = server.getScheduledExecutorService().schedule(
             this::checkTimeout, sessionTimeout.toNanos(), TimeUnit.NANOSECONDS);
@@ -408,7 +407,7 @@ public class Session implements SessionServiceSet {
     }
 
     @Override
-    public void onCancel(ServiceRequest serviceRequest) throws UaException {
+    public void onCancel(ServiceRequest serviceRequest) {
         serviceRequest.setResponse(new CancelResponse(serviceRequest.createResponseHeader(), uint(0)));
     }
     //endregion

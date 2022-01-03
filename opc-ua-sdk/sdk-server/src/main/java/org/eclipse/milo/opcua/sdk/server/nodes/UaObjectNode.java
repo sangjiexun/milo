@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -10,20 +10,23 @@
 
 package org.eclipse.milo.opcua.sdk.server.nodes;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.eclipse.milo.opcua.sdk.core.Reference;
+import org.eclipse.milo.opcua.sdk.core.nodes.Node;
+import org.eclipse.milo.opcua.sdk.core.nodes.ObjectNode;
 import org.eclipse.milo.opcua.sdk.core.nodes.ObjectNodeProperties;
+import org.eclipse.milo.opcua.sdk.core.nodes.ObjectTypeNode;
 import org.eclipse.milo.opcua.sdk.server.api.AddressSpaceManager;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.Node;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.ObjectNode;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.ObjectTypeNode;
+import org.eclipse.milo.opcua.sdk.server.api.NodeManager;
+import org.eclipse.milo.opcua.sdk.server.nodes.filters.AttributeFilter;
+import org.eclipse.milo.opcua.sdk.server.nodes.filters.AttributeFilterChain;
 import org.eclipse.milo.opcua.stack.core.AttributeId;
 import org.eclipse.milo.opcua.stack.core.Identifiers;
 import org.eclipse.milo.opcua.stack.core.NamespaceTable;
@@ -35,10 +38,12 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UByte;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NamingRuleType;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NodeClass;
+import org.jetbrains.annotations.Nullable;
 
 import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_COMPONENT_PREDICATE;
 import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_EVENT_SOURCE_PREDICATE;
 import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_NOTIFIER_PREDICATE;
+import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_ORDERED_COMPONENT_PREDICATE;
 import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_PROPERTY_PREDICATE;
 import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_TYPE_DEFINITION_PREDICATE;
 import static org.eclipse.milo.opcua.sdk.core.Reference.ORGANIZES_PREDICATE;
@@ -100,40 +105,31 @@ public class UaObjectNode extends UaNode implements ObjectNode {
 
     @Override
     public UByte getEventNotifier() {
-        return eventNotifier;
+        return (UByte) filterChain.getAttribute(this, AttributeId.EventNotifier);
     }
 
     @Override
-    public synchronized void setEventNotifier(UByte eventNotifier) {
-        this.eventNotifier = eventNotifier;
-
-        fireAttributeChanged(AttributeId.EventNotifier, eventNotifier);
+    public void setEventNotifier(UByte eventNotifier) {
+        filterChain.setAttribute(this, AttributeId.EventNotifier, eventNotifier);
     }
 
     @Override
     public synchronized Object getAttribute(AttributeId attributeId) {
-        switch (attributeId) {
-            case EventNotifier:
-                return eventNotifier;
-
-            default:
-                return super.getAttribute(attributeId);
+        if (attributeId == AttributeId.EventNotifier) {
+            return eventNotifier;
+        } else {
+            return super.getAttribute(attributeId);
         }
     }
 
     @Override
     public synchronized void setAttribute(AttributeId attributeId, Object value) {
-        switch (attributeId) {
-            case EventNotifier:
-                eventNotifier = (UByte) value;
-                break;
-
-            default:
-                super.setAttribute(attributeId, value);
-                return; // prevent firing an attribute change
+        if (attributeId == AttributeId.EventNotifier) {
+            eventNotifier = (UByte) value;
+            fireAttributeChanged(attributeId, value);
+        } else {
+            super.setAttribute(attributeId, value);
         }
-
-        fireAttributeChanged(attributeId, value);
     }
 
     @Nullable
@@ -178,7 +174,7 @@ public class UaObjectNode extends UaNode implements ObjectNode {
 
         NodeId nodeId = asm.getManagedReferences(typeDefinitionId)
             .stream()
-            .filter(HAS_COMPONENT_PREDICATE)
+            .filter(HAS_COMPONENT_PREDICATE.or(HAS_ORDERED_COMPONENT_PREDICATE))
             .flatMap(r -> opt2stream(getManagedNode(r.getTargetNodeId())))
             .filter(n ->
                 (n instanceof UaMethodNode) &&
@@ -191,7 +187,7 @@ public class UaObjectNode extends UaNode implements ObjectNode {
             NodeId parentTypeId = asm.getManagedReferences(typeDefinitionId)
                 .stream()
                 .filter(Reference.SUBTYPE_OF)
-                .flatMap(r -> opt2stream(r.getTargetNodeId().local(namespaceTable)))
+                .flatMap(r -> opt2stream(r.getTargetNodeId().toNodeId(namespaceTable)))
                 .findFirst()
                 .orElse(null);
 
@@ -221,7 +217,7 @@ public class UaObjectNode extends UaNode implements ObjectNode {
 
     public List<UaMethodNode> getMethodNodes() {
         return getReferences().stream()
-            .filter(HAS_COMPONENT_PREDICATE)
+            .filter(HAS_COMPONENT_PREDICATE.or(HAS_ORDERED_COMPONENT_PREDICATE))
             .flatMap(r -> opt2stream(getManagedNode(r.getTargetNodeId())))
             .filter(n -> (n instanceof UaMethodNode))
             .map(UaMethodNode.class::cast)
@@ -358,13 +354,39 @@ public class UaObjectNode extends UaNode implements ObjectNode {
         setProperty(ObjectNodeProperties.NamingRule, namingRule);
     }
 
+    /**
+     * @deprecated use {@link UaObjectNodeBuilder#UaObjectNodeBuilder(UaNodeContext)} or
+     * {@link #build(UaNodeContext, Function)}.
+     */
+    @Deprecated
     public static UaObjectNodeBuilder builder(UaNodeContext context) {
         return new UaObjectNodeBuilder(context);
     }
 
+    /**
+     * Build a {@link UaObjectNode} using the {@link UaObjectNodeBuilder} supplied to the
+     * {@code build} function.
+     *
+     * @param context a {@link UaNodeContext}.
+     * @param build   a function that accepts a {@link UaObjectNodeBuilder} and uses it to build
+     *                and return a {@link UaObjectNode}.
+     * @return a {@link UaObjectNode} built using the supplied {@link UaObjectNodeBuilder}.
+     */
+    public static UaObjectNode build(
+        UaNodeContext context,
+        Function<UaObjectNodeBuilder, UaObjectNode> build
+    ) {
+
+        UaObjectNodeBuilder builder = new UaObjectNodeBuilder(context);
+
+        return build.apply(builder);
+    }
+
     public static class UaObjectNodeBuilder implements Supplier<UaObjectNode> {
 
-        private final List<Reference> references = Lists.newArrayList();
+        private final List<AttributeFilter> attributeFilters = new ArrayList<>();
+
+        private final List<Reference> references = new ArrayList<>();
 
         private NodeId nodeId;
         private QualifiedName browseName;
@@ -380,17 +402,18 @@ public class UaObjectNode extends UaNode implements ObjectNode {
             this.context = context;
         }
 
+        /**
+         * @see #build()
+         */
         @Override
         public UaObjectNode get() {
             return build();
         }
 
         /**
-         * Builds the configured {@link UaObjectNode}.
+         * Build and return the {@link UaObjectNode}.
          * <p>
-         * The following fields are required: NodeId, NodeClass, BrowseName, DisplayName.
-         * <p>
-         * Exactly one HasTypeDefinition reference must be present.
+         * The following fields are required: NodeId, BrowseName, DisplayName.
          *
          * @return a {@link UaObjectNode}.
          * @throws NullPointerException  if any of the required fields are null.
@@ -404,11 +427,13 @@ public class UaObjectNode extends UaNode implements ObjectNode {
             long hasTypeDefinitionCount = references.stream()
                 .filter(r -> Identifiers.HasTypeDefinition.equals(r.getReferenceTypeId())).count();
 
-            Preconditions.checkState(
-                hasTypeDefinitionCount == 1,
-                "Object Node must have exactly one HasTypeDefinition reference.");
-
-            // TODO More validation on references.
+            if (hasTypeDefinitionCount == 0) {
+                setTypeDefinition(Identifiers.BaseObjectType);
+            } else {
+                Preconditions.checkState(
+                    hasTypeDefinitionCount == 1,
+                    "Object Node must have exactly one HasTypeDefinition reference.");
+            }
 
             UaObjectNode node = new UaObjectNode(
                 context,
@@ -423,6 +448,21 @@ public class UaObjectNode extends UaNode implements ObjectNode {
 
             references.forEach(node::addReference);
 
+            node.getFilterChain().addLast(attributeFilters);
+
+            return node;
+        }
+
+        /**
+         * Build the {@link UaObjectNode} using the configured values and add it to the
+         * {@link NodeManager} from the {@link UaNodeContext}.
+         *
+         * @return a {@link UaObjectNode} built from the configured values.
+         * @see #build()
+         */
+        public UaObjectNode buildAndAdd() {
+            UaObjectNode node = build();
+            context.getNodeManager().addNode(node);
             return node;
         }
 
@@ -461,6 +501,54 @@ public class UaObjectNode extends UaNode implements ObjectNode {
             return this;
         }
 
+        public NodeId getNodeId() {
+            return nodeId;
+        }
+
+        public QualifiedName getBrowseName() {
+            return browseName;
+        }
+
+        public LocalizedText getDisplayName() {
+            return displayName;
+        }
+
+        public LocalizedText getDescription() {
+            return description;
+        }
+
+        public UInteger getWriteMask() {
+            return writeMask;
+        }
+
+        public UInteger getUserWriteMask() {
+            return userWriteMask;
+        }
+
+        public UByte getEventNotifier() {
+            return eventNotifier;
+        }
+
+        /**
+         * Add an {@link AttributeFilter} that will be added to the node's
+         * {@link AttributeFilterChain} when it's built.
+         * <p>
+         * The order filters are added in this builder is maintained.
+         *
+         * @param attributeFilter the {@link AttributeFilter} to add.
+         * @return this {@link UaObjectNodeBuilder}.
+         */
+        public UaObjectNodeBuilder addAttributeFilter(AttributeFilter attributeFilter) {
+            attributeFilters.add(attributeFilter);
+            return this;
+        }
+
+        /**
+         * Add a {@link Reference} to the node when it's built.
+         *
+         * @param reference the {@link Reference} to add.
+         * @return this {@link UaObjectNodeBuilder}.
+         */
         public UaObjectNodeBuilder addReference(Reference reference) {
             references.add(reference);
             return this;

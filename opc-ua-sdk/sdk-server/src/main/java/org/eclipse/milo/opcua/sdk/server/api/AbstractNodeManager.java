@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 import com.google.common.collect.LinkedHashMultiset;
 import com.google.common.collect.MapMaker;
 import org.eclipse.milo.opcua.sdk.core.Reference;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.Node;
+import org.eclipse.milo.opcua.sdk.core.nodes.Node;
 import org.eclipse.milo.opcua.stack.core.NamespaceTable;
 import org.eclipse.milo.opcua.stack.core.types.builtin.ExpandedNodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
@@ -91,7 +91,7 @@ public class AbstractNodeManager<T extends Node> implements NodeManager<T> {
 
     @Override
     public boolean containsNode(ExpandedNodeId nodeId, NamespaceTable namespaceTable) {
-        return nodeId.local(namespaceTable)
+        return nodeId.toNodeId(namespaceTable)
             .map(this::containsNode)
             .orElse(false);
     }
@@ -108,7 +108,7 @@ public class AbstractNodeManager<T extends Node> implements NodeManager<T> {
 
     @Override
     public Optional<T> getNode(ExpandedNodeId nodeId, NamespaceTable namespaceTable) {
-        return nodeId.local(namespaceTable).flatMap(this::getNode);
+        return nodeId.toNodeId(namespaceTable).flatMap(this::getNode);
     }
 
     @Override
@@ -118,7 +118,7 @@ public class AbstractNodeManager<T extends Node> implements NodeManager<T> {
 
     @Override
     public Optional<T> removeNode(ExpandedNodeId nodeId, NamespaceTable namespaceTable) {
-        return nodeId.local(namespaceTable).flatMap(this::removeNode);
+        return nodeId.toNodeId(namespaceTable).flatMap(this::removeNode);
     }
 
     @Override

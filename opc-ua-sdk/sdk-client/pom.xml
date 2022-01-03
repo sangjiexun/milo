@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.eclipse.milo</groupId>
         <artifactId>opc-ua-sdk</artifactId>
-        <version>0.4.3-SNAPSHOT</version>
+        <version>0.6.4-SNAPSHOT</version>
     </parent>
 
     <artifactId>sdk-client</artifactId>
@@ -26,9 +26,9 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.google.code.findbugs</groupId>
-            <artifactId>jsr305</artifactId>
-            <version>${jsr305.version}</version>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>${annotations.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

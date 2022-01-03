@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -10,17 +10,20 @@
 
 package org.eclipse.milo.opcua.sdk.server.nodes;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.eclipse.milo.opcua.sdk.core.Reference;
+import org.eclipse.milo.opcua.sdk.core.nodes.ObjectTypeNode;
 import org.eclipse.milo.opcua.sdk.core.nodes.ObjectTypeNodeProperties;
-import org.eclipse.milo.opcua.sdk.server.api.nodes.ObjectTypeNode;
+import org.eclipse.milo.opcua.sdk.server.api.NodeManager;
+import org.eclipse.milo.opcua.sdk.server.nodes.filters.AttributeFilter;
+import org.eclipse.milo.opcua.sdk.server.nodes.filters.AttributeFilterChain;
 import org.eclipse.milo.opcua.stack.core.AttributeId;
 import org.eclipse.milo.opcua.stack.core.Identifiers;
 import org.eclipse.milo.opcua.stack.core.types.builtin.ByteString;
@@ -29,8 +32,10 @@ import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.QualifiedName;
 import org.eclipse.milo.opcua.stack.core.types.builtin.unsigned.UInteger;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NodeClass;
+import org.jetbrains.annotations.Nullable;
 
 import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_COMPONENT_PREDICATE;
+import static org.eclipse.milo.opcua.sdk.core.Reference.HAS_ORDERED_COMPONENT_PREDICATE;
 import static org.eclipse.milo.opcua.sdk.core.util.StreamUtil.opt2stream;
 
 public class UaObjectTypeNode extends UaNode implements ObjectTypeNode {
@@ -55,46 +60,37 @@ public class UaObjectTypeNode extends UaNode implements ObjectTypeNode {
 
     @Override
     public Boolean getIsAbstract() {
-        return isAbstract;
+        return (Boolean) filterChain.getAttribute(this, AttributeId.IsAbstract);
     }
 
     @Override
-    public synchronized void setIsAbstract(Boolean isAbstract) {
-        this.isAbstract = isAbstract;
-
-        fireAttributeChanged(AttributeId.IsAbstract, isAbstract);
+    public void setIsAbstract(Boolean isAbstract) {
+        filterChain.setAttribute(this, AttributeId.IsAbstract, isAbstract);
     }
 
     @Override
     public synchronized Object getAttribute(AttributeId attributeId) {
-        switch (attributeId) {
-            case IsAbstract:
-                return isAbstract;
-
-            default:
-                return super.getAttribute(attributeId);
+        if (attributeId == AttributeId.IsAbstract) {
+            return isAbstract;
+        } else {
+            return super.getAttribute(attributeId);
         }
     }
 
     @Override
     public synchronized void setAttribute(AttributeId attributeId, Object value) {
-        switch (attributeId) {
-            case IsAbstract:
-                isAbstract = (Boolean) value;
-                break;
-
-            default:
-                super.setAttribute(attributeId, value);
-                return; // prevent firing an attribute change
+        if (attributeId == AttributeId.IsAbstract) {
+            isAbstract = (Boolean) value;
+            fireAttributeChanged(attributeId, value);
+        } else {
+            super.setAttribute(attributeId, value);
         }
-
-        fireAttributeChanged(attributeId, value);
     }
 
     @Nullable
     public UaMethodNode findMethodNode(NodeId methodId) {
         return getReferences().stream()
-            .filter(HAS_COMPONENT_PREDICATE)
+            .filter(HAS_COMPONENT_PREDICATE.or(HAS_ORDERED_COMPONENT_PREDICATE))
             .flatMap(r -> opt2stream(getManagedNode(r.getTargetNodeId())))
             .filter(n -> (n instanceof UaMethodNode) && Objects.equals(n.getNodeId(), methodId))
             .map(UaMethodNode.class::cast)
@@ -104,7 +100,7 @@ public class UaObjectTypeNode extends UaNode implements ObjectTypeNode {
 
     public List<UaMethodNode> getMethodNodes() {
         return getReferences().stream()
-            .filter(HAS_COMPONENT_PREDICATE)
+            .filter(HAS_COMPONENT_PREDICATE.or(HAS_ORDERED_COMPONENT_PREDICATE))
             .flatMap(r -> opt2stream(getManagedNode(r.getTargetNodeId())))
             .filter(n -> (n instanceof UaMethodNode))
             .map(UaMethodNode.class::cast)
@@ -205,9 +201,30 @@ public class UaObjectTypeNode extends UaNode implements ObjectTypeNode {
         return new UaObjectTypeNodeBuilder(context);
     }
 
+    /**
+     * Build a {@link UaObjectTypeNode} using the {@link UaObjectTypeNodeBuilder} supplied to the
+     * {@code build} function.
+     *
+     * @param context a {@link UaNodeContext}.
+     * @param build   a function that accepts a {@link UaObjectTypeNodeBuilder} and uses it to build
+     *                and return a {@link UaObjectTypeNode}.
+     * @return a {@link UaObjectTypeNode} built using the supplied {@link UaObjectTypeNodeBuilder}.
+     */
+    public static UaObjectTypeNode build(
+        UaNodeContext context,
+        Function<UaObjectTypeNodeBuilder, UaObjectTypeNode> build
+    ) {
+
+        UaObjectTypeNodeBuilder builder = new UaObjectTypeNodeBuilder(context);
+
+        return build.apply(builder);
+    }
+
     public static class UaObjectTypeNodeBuilder implements Supplier<UaObjectTypeNode> {
 
-        private final List<Reference> references = Lists.newArrayList();
+        private final List<AttributeFilter> attributeFilters = new ArrayList<>();
+
+        private final List<Reference> references = new ArrayList<>();
 
         private NodeId nodeId;
         private QualifiedName browseName;
@@ -221,6 +238,57 @@ public class UaObjectTypeNode extends UaNode implements ObjectTypeNode {
 
         public UaObjectTypeNodeBuilder(UaNodeContext context) {
             this.context = context;
+        }
+
+        /**
+         * @see #build()
+         */
+        @Override
+        public UaObjectTypeNode get() {
+            return build();
+        }
+
+        /**
+         * Build and return the {@link UaObjectTypeNode}.
+         * <p>
+         * The following fields are required: NodeId, BrowseName, DisplayName.
+         *
+         * @return a {@link UaObjectTypeNode} built from the configuration of this builder.
+         */
+        public UaObjectTypeNode build() {
+            Preconditions.checkNotNull(nodeId, "NodeId cannot be null");
+            Preconditions.checkNotNull(browseName, "BrowseName cannot be null");
+            Preconditions.checkNotNull(displayName, "DisplayName cannot be null");
+
+            UaObjectTypeNode node = new UaObjectTypeNode(
+                context,
+                nodeId,
+                browseName,
+                displayName,
+                description,
+                writeMask,
+                userWriteMask,
+                isAbstract
+            );
+
+            references.forEach(node::addReference);
+
+            node.getFilterChain().addLast(attributeFilters);
+
+            return node;
+        }
+
+        /**
+         * Build the {@link UaObjectTypeNode} using the configured values and add it to the
+         * {@link NodeManager} from the {@link UaNodeContext}.
+         *
+         * @return a {@link UaObjectTypeNode} built from the configured values.
+         * @see #build()
+         */
+        public UaObjectTypeNode buildAndAdd() {
+            UaObjectTypeNode node = build();
+            context.getNodeManager().addNode(node);
+            return node;
         }
 
         public UaObjectTypeNodeBuilder setNodeId(NodeId nodeId) {
@@ -258,36 +326,59 @@ public class UaObjectTypeNode extends UaNode implements ObjectTypeNode {
             return this;
         }
 
+        public NodeId getNodeId() {
+            return nodeId;
+        }
+
+        public QualifiedName getBrowseName() {
+            return browseName;
+        }
+
+        public LocalizedText getDisplayName() {
+            return displayName;
+        }
+
+        public LocalizedText getDescription() {
+            return description;
+        }
+
+        public UInteger getWriteMask() {
+            return writeMask;
+        }
+
+        public UInteger getUserWriteMask() {
+            return userWriteMask;
+        }
+
+        public boolean isAbstract() {
+            return isAbstract;
+        }
+
+        /**
+         * Add an {@link AttributeFilter} that will be added to the node's
+         * {@link AttributeFilterChain} when it's built.
+         * <p>
+         * The order filters are added in this builder is maintained.
+         *
+         * @param attributeFilter the {@link AttributeFilter} to add.
+         * @return this {@link UaObjectTypeNodeBuilder}.
+         */
+        public UaObjectTypeNodeBuilder addAttributeFilter(AttributeFilter attributeFilter) {
+            attributeFilters.add(attributeFilter);
+            return this;
+        }
+
+        /**
+         * Add a {@link Reference} to the node when it's built.
+         *
+         * @param reference the {@link Reference} to add.
+         * @return this {@link UaObjectTypeNodeBuilder}.
+         */
         public UaObjectTypeNodeBuilder addReference(Reference reference) {
             references.add(reference);
             return this;
         }
 
-        @Override
-        public UaObjectTypeNode get() {
-            return build();
-        }
-
-        public UaObjectTypeNode build() {
-            Preconditions.checkNotNull(nodeId, "NodeId cannot be null");
-            Preconditions.checkNotNull(browseName, "BrowseName cannot be null");
-            Preconditions.checkNotNull(displayName, "DisplayName cannot be null");
-
-            UaObjectTypeNode node = new UaObjectTypeNode(
-                context,
-                nodeId,
-                browseName,
-                displayName,
-                description,
-                writeMask,
-                userWriteMask,
-                isAbstract
-            );
-
-            references.forEach(node::addReference);
-
-            return node;
-        }
     }
 
 }

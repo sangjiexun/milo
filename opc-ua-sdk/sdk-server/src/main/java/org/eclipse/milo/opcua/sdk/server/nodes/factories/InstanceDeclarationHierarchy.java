@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -19,6 +19,7 @@ import org.eclipse.milo.opcua.sdk.server.api.AddressSpaceManager;
 import org.eclipse.milo.opcua.sdk.server.nodes.UaNode;
 import org.eclipse.milo.opcua.stack.core.Identifiers;
 import org.eclipse.milo.opcua.stack.core.NamespaceTable;
+import org.eclipse.milo.opcua.stack.core.types.builtin.ExpandedNodeId;
 import org.eclipse.milo.opcua.stack.core.types.builtin.NodeId;
 import org.eclipse.milo.opcua.stack.core.types.enumerated.NodeClass;
 
@@ -87,7 +88,7 @@ public class InstanceDeclarationHierarchy {
                 .stream()
                 .filter(r -> r.isInverse() && Identifiers.HasSubtype.equals(r.getReferenceTypeId()))
                 .findFirst()
-                .flatMap(r -> r.getTargetNodeId().local(namespaceTable))
+                .flatMap(r -> r.getTargetNodeId().toNodeId(namespaceTable))
                 .map(parentTypeId -> InstanceDeclarationHierarchy
                     .create(addressSpaceManager, namespaceTable, parentTypeId));
 
@@ -125,12 +126,25 @@ public class InstanceDeclarationHierarchy {
                         nodeTable.addNode(browsePath, node.getNodeId());
                         referenceTable.addReference(parentPath, reference.getReferenceTypeId(), browsePath);
 
-                        node.getReferences().stream()
+                        node.getReferences()
+                            .stream()
                             .filter(r -> r.subtypeOf(Identifiers.NonHierarchicalReferences))
                             .forEach(r -> referenceTable
                                 .addReference(browsePath, r.getReferenceTypeId(), r.getTargetNodeId()));
 
+                        // Recursively add any additional instance declarations, on both this
+                        // instance declaration and its type definition if applicable.
+
                         addModeledNodes(node.getNodeId(), browsePath);
+
+                        Optional<ExpandedNodeId> instanceDeclarationTypeDefinitionId = node.getReferences()
+                            .stream()
+                            .filter(r -> Identifiers.HasTypeDefinition.equals(r.getReferenceTypeId()))
+                            .findFirst()
+                            .map(Reference::getTargetNodeId);
+
+                        instanceDeclarationTypeDefinitionId.flatMap(xni -> xni.toNodeId(namespaceTable))
+                            .ifPresent(id -> addModeledNodes(id, browsePath));
                     }
                 })
             );
@@ -152,8 +166,8 @@ public class InstanceDeclarationHierarchy {
                 .stream()
                 .filter(r -> Identifiers.HasModellingRule.equals(r.getReferenceTypeId()))
                 .anyMatch(r ->
-                    Identifiers.ModellingRule_Mandatory.equals(r.getTargetNodeId()) ||
-                        Identifiers.ModellingRule_Optional.equals(r.getTargetNodeId())
+                    Identifiers.ModellingRule_Mandatory.equalTo(r.getTargetNodeId()) ||
+                        Identifiers.ModellingRule_Optional.equalTo(r.getTargetNodeId())
                 );
         }
 

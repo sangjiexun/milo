@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 the Eclipse Milo Authors
+ * Copyright (c) 2021 the Eclipse Milo Authors
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -33,19 +33,19 @@ public class ExpandedNodeIdTest {
         namespaceTable.addUri("uri:test");
 
         ExpandedNodeId xni0 = new ExpandedNodeId(ushort(0), null, "test");
-        assertTrue(xni0.local(namespaceTable).isPresent());
+        assertTrue(xni0.toNodeId(namespaceTable).isPresent());
 
         ExpandedNodeId xni1 = new ExpandedNodeId(ushort(1), null, "test");
-        assertTrue(xni1.local(namespaceTable).isPresent());
+        assertTrue(xni1.toNodeId(namespaceTable).isPresent());
 
         ExpandedNodeId xni2 = new ExpandedNodeId(ushort(99), namespaceTable.getUri(0), "test");
-        assertTrue(xni2.local(namespaceTable).isPresent());
+        assertTrue(xni2.toNodeId(namespaceTable).isPresent());
 
         ExpandedNodeId xni3 = new ExpandedNodeId(ushort(99), namespaceTable.getUri(1), "test");
-        assertTrue(xni3.local(namespaceTable).isPresent());
+        assertTrue(xni3.toNodeId(namespaceTable).isPresent());
 
         ExpandedNodeId xni4 = new ExpandedNodeId(ushort(99), "uri:notpresent", "test");
-        assertFalse(xni4.local(namespaceTable).isPresent());
+        assertFalse(xni4.toNodeId(namespaceTable).isPresent());
     }
 
     @Test
@@ -68,7 +68,7 @@ public class ExpandedNodeIdTest {
 
             NodeId nodeId = new NodeId(0, "foo");
 
-            assertTrue(xni.equals(nodeId));
+            assertTrue(xni.equalTo(nodeId));
         }
 
         {
@@ -79,7 +79,7 @@ public class ExpandedNodeIdTest {
 
             NodeId nodeId = new NodeId(0, "foo");
 
-            assertTrue(xni.equals(nodeId));
+            assertTrue(xni.equalTo(nodeId));
         }
 
         {
@@ -91,7 +91,7 @@ public class ExpandedNodeIdTest {
 
             NodeId nodeId = new NodeId(0, "foo");
 
-            assertFalse(xni.equals(nodeId));
+            assertFalse(xni.equalTo(nodeId));
         }
 
         {
@@ -102,7 +102,7 @@ public class ExpandedNodeIdTest {
 
             NodeId nodeId = new NodeId(0, "foo");
 
-            assertFalse(xni.equals(nodeId));
+            assertFalse(xni.equalTo(nodeId));
         }
 
         {
@@ -113,7 +113,7 @@ public class ExpandedNodeIdTest {
 
             NodeId nodeId = new NodeId(0, "foo");
 
-            assertFalse(xni.equals(nodeId));
+            assertFalse(xni.equalTo(nodeId));
         }
     }
 
@@ -163,6 +163,33 @@ public class ExpandedNodeIdTest {
         ExpandedNodeId xni = new ExpandedNodeId(ushort(0), null, "test");
 
         assertEquals("ns=0;s=test", xni.toParseableString());
+    }
+
+    @Test
+    public void parseNamespaceUriContainingEquals() {
+        ExpandedNodeId xni = ExpandedNodeId.parse(
+            "nsu=http://softing.com/dataFEEDSIS/nsuri?conn=Demo&uri=http://opcfoundation.org/UA/;i=85"
+        );
+
+        assertEquals(
+            xni.getNamespaceUri(),
+            "http://softing.com/dataFEEDSIS/nsuri?conn=Demo&uri=http://opcfoundation.org/UA/"
+        );
+
+        assertEquals(xni.getIdentifier(), uint(85));
+    }
+
+    @Test
+    public void reindex() {
+        NamespaceTable namespaceTable = new NamespaceTable();
+        namespaceTable.addUri("test1");
+        namespaceTable.addUri("test2");
+
+        ExpandedNodeId xni1 = new ExpandedNodeId(ushort(1), null, "test");
+
+        ExpandedNodeId xni2 = xni1.reindex(namespaceTable, "test2");
+
+        assertEquals(ushort(2), xni2.getNamespaceIndex());
     }
 
 }
